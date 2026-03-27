@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+
+# Environment
+.env
+.env.local
+.env.*
+!.env.example
+
+# Uploads
+uploads/
+**/uploads/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+
+# Logs
+*.log
