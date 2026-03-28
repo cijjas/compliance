@@ -1,0 +1,210 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ── Fonts ── */
+@font-face {
+  font-family: "Outfit";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&display=swap");
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono);
+  --font-heading: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* Surface tokens */
+  --color-surface: var(--surface);
+  --color-surface-container-low: var(--surface-container-low);
+  --color-surface-container-lowest: var(--surface-container-lowest);
+  --color-surface-container-high: var(--surface-container-high);
+  --color-surface-container-highest: var(--surface-container-highest);
+  --color-surface-bright: var(--surface-bright);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-outline-variant: var(--outline-variant);
+  --color-primary-container: var(--primary-container);
+
+  /* Status colors */
+  --color-status-approved: var(--status-approved);
+  --color-status-approved-fg: var(--status-approved-fg);
+  --color-status-review: var(--status-review);
+  --color-status-review-fg: var(--status-review-fg);
+  --color-status-pending: var(--status-pending);
+  --color-status-pending-fg: var(--status-pending-fg);
+  --color-status-rejected: var(--status-rejected);
+  --color-status-rejected-fg: var(--status-rejected-fg);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* ── Core palette (Fintech Slate) ── */
+  --background: #f9f9ff;
+  --foreground: #191b22;
+  --card: #ffffff;
+  --card-foreground: #191b22;
+  --popover: #ffffff;
+  --popover-foreground: #191b22;
+  --primary: #216384;
+  --primary-foreground: #ffffff;
+  --primary-container: #3f7c9e;
+  --secondary: #f3f3fc;
+  --secondary-foreground: #3a3f4b;
+  --muted: #f3f3fc;
+  --muted-foreground: #6b7280;
+  --accent: #f3f3fc;
+  --accent-foreground: #191b22;
+  --destructive: #ba1a1a;
+  --border: rgba(192, 199, 206, 0.15);
+  --input: rgba(192, 199, 206, 0.15);
+  --ring: #216384;
+
+  /* ── Surface hierarchy (The Architectural Ledger) ── */
+  --surface: #f9f9ff;
+  --surface-container-low: #f3f3fc;
+  --surface-container-lowest: #ffffff;
+  --surface-container-high: #e8e9f1;
+  --surface-container-highest: #dfe0e8;
+  --surface-bright: rgba(255, 255, 255, 0.80);
+  --on-surface: #191b22;
+  --on-surface-variant: #6b7280;
+  --outline-variant: rgba(192, 199, 206, 0.15);
+
+  /* ── Status indicators ── */
+  --status-approved: #e8f5ee;
+  --status-approved-fg: #15803d;
+  --status-review: #fef3c7;
+  --status-review-fg: #92400e;
+  --status-pending: #f1f5f9;
+  --status-pending-fg: #475569;
+  --status-rejected: #fde8e8;
+  --status-rejected-fg: #ba1a1a;
+
+  /* ── Charts ── */
+  --chart-1: #216384;
+  --chart-2: #3f7c9e;
+  --chart-3: #6b9db8;
+  --chart-4: #97bed2;
+  --chart-5: #c3dfec;
+
+  --radius: 0.625rem;
+
+  /* ── Sidebar ── */
+  --sidebar: #f3f3fc;
+  --sidebar-foreground: #3a3f4b;
+  --sidebar-primary: #216384;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: rgba(33, 99, 132, 0.08);
+  --sidebar-accent-foreground: #216384;
+  --sidebar-border: rgba(192, 199, 206, 0);
+  --sidebar-ring: #216384;
+}
+
+@layer base {
+  * {
+    @apply outline-ring/50;
+    border-color: var(--outline-variant);
+  }
+  body {
+    @apply bg-surface text-on-surface;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  html {
+    @apply font-sans antialiased;
+  }
+}
+
+/* ── Editorial typography ── */
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+  .text-display-lg {
+    font-family: var(--font-display);
+    font-size: 2.75rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+  }
+  .text-headline-md {
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+  .text-label-caps {
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  .text-data {
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Gradient CTA */
+  .bg-primary-gradient {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-container) 100%);
+  }
+  /* Glassmorphism */
+  .glass {
+    background: var(--surface-bright);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+  /* Ambient shadow (no harsh drop shadows) */
+  .shadow-ambient {
+    box-shadow: 0 0 20px rgba(25, 27, 34, 0.06);
+  }
+  .shadow-ambient-lg {
+    box-shadow: 0 0 40px rgba(25, 27, 34, 0.06);
+  }
+}
