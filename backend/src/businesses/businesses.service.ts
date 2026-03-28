@@ -93,15 +93,16 @@ export class BusinessesService {
   }
 
   async findOne(id: string): Promise<Business> {
-    const business = await this.businessRepo.findOne({
-      where: { id },
-      relations: [
-        'documents',
-        'statusHistory',
-        'statusHistory.changedBy',
-        'createdBy',
-      ],
-    });
+    const business = await this.businessRepo
+      .createQueryBuilder('b')
+      .leftJoinAndSelect('b.documents', 'doc')
+      .leftJoinAndSelect('b.statusHistory', 'sh')
+      .leftJoinAndSelect('sh.changedBy', 'shUser')
+      .leftJoinAndSelect('b.createdBy', 'creator')
+      .where('b.id = :id', { id })
+      .addOrderBy('sh.created_at', 'ASC')
+      .addOrderBy('doc.created_at', 'DESC')
+      .getOne();
     if (!business) throw new NotFoundException('Business not found');
     return business;
   }

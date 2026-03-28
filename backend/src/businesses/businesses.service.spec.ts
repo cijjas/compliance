@@ -38,7 +38,7 @@ describe('BusinessesService', () => {
       findOne: jest.fn(),
     };
     dataSource = {
-      transaction: jest.fn<(handler: TransactionHandler) => Promise<unknown>>(),
+      transaction: jest.fn() as jest.MockedFunction<(handler: TransactionHandler) => Promise<unknown>>,
     };
     riskService = {
       refreshBusinessRiskScore: jest.fn(),

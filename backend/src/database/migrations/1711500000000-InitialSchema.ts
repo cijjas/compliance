@@ -24,12 +24,12 @@ export class InitialSchema1711500000000 implements MigrationInterface {
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
         "email" varchar NOT NULL UNIQUE,
         "password" varchar NOT NULL,
-        "firstName" varchar NOT NULL,
-        "lastName" varchar NOT NULL,
+        "first_name" varchar NOT NULL,
+        "last_name" varchar NOT NULL,
         "role" "user_role_enum" NOT NULL DEFAULT 'viewer',
-        "isActive" boolean NOT NULL DEFAULT true,
-        "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
-        "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+        "is_active" boolean NOT NULL DEFAULT true,
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
         CONSTRAINT "PK_users" PRIMARY KEY ("id")
       )
     `);

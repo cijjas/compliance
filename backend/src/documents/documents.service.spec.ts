@@ -48,8 +48,8 @@ describe('DocumentsService', () => {
       fileSize: file.size,
     } as Document;
     const savedDocument = {
-      id: 'document-1',
       ...createdDocument,
+      id: 'document-1',
     } as Document;
 
     businessRepo.findOne.mockResolvedValue({ id: 'business-1' } as Business);

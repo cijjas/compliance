@@ -1,0 +1,254 @@
+{
+  "info": {
+    "name": "Complif API",
+    "description": "Company Onboarding Portal — full API collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080/api" },
+    { "key": "microserviceUrl", "value": "http://localhost:3001" },
+    { "key": "token", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Format Validation Microservice",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{microserviceUrl}}/validate/health",
+            "auth": { "type": "noauth" }
+          }
+        },
+        {
+          "name": "Validate CUIT (Argentina)",
+          "request": {
+            "method": "POST",
+            "url": "{{microserviceUrl}}/validate/identifier",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"20-12345678-9\",\n  \"country\": \"AR\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Validate RFC (Mexico)",
+          "request": {
+            "method": "POST",
+            "url": "{{microserviceUrl}}/validate/identifier",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"ABC060101AAA\",\n  \"country\": \"MX\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Validate CNPJ (Brazil)",
+          "request": {
+            "method": "POST",
+            "url": "{{microserviceUrl}}/validate/identifier",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"identifier\": \"11.222.333/0001-81\",\n  \"country\": \"BR\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/register",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@complif.com\",\n  \"password\": \"password123\",\n  \"firstName\": \"New\",\n  \"lastName\": \"User\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.accessToken) {",
+                  "  pm.collectionVariables.set('token', jsonData.accessToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/login",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@complif.com\",\n  \"password\": \"admin123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login (Viewer)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.accessToken) {",
+                  "  pm.collectionVariables.set('token', jsonData.accessToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/login",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"viewer@complif.com\",\n  \"password\": \"viewer123\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Businesses",
+      "item": [
+        {
+          "name": "Create Business",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/businesses",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test Company SA\",\n  \"taxIdentifier\": \"20-31234567-8\",\n  \"country\": \"AR\",\n  \"industry\": \"technology\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Businesses",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/businesses?page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["businesses"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "status", "value": "pending", "disabled": true },
+                { "key": "country", "value": "AR", "disabled": true },
+                { "key": "search", "value": "Acme", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Business Detail",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/businesses/:id",
+            "variable": [{ "key": "id", "value": "<business-uuid>" }]
+          }
+        },
+        {
+          "name": "Update Business Status",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/businesses/:id/status",
+            "variable": [{ "key": "id", "value": "<business-uuid>" }],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"reason\": \"All documentation verified\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Risk Score",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/businesses/:id/risk-score",
+            "variable": [{ "key": "id", "value": "<business-uuid>" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Documents",
+      "item": [
+        {
+          "name": "Upload Document",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/businesses/:businessId/documents",
+            "variable": [{ "key": "businessId", "value": "<business-uuid>" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "file", "type": "file", "src": "" },
+                { "key": "type", "value": "fiscal_certificate", "type": "text" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Documents",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/businesses/:businessId/documents",
+            "variable": [{ "key": "businessId", "value": "<business-uuid>" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "SSE Stream (open in browser or curl)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/notifications/stream",
+            "description": "Server-Sent Events stream. Use curl: curl -H 'Authorization: Bearer <token>' http://localhost:8080/api/notifications/stream"
+          }
+        }
+      ]
+    }
+  ]
+}

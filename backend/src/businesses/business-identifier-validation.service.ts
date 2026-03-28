@@ -27,10 +27,7 @@ export class BusinessIdentifierValidationService {
       const { data } = await firstValueFrom(
         this.httpService.post<FormatValidationResponse>(
           `${baseUrl}/validate/identifier`,
-          {
-            identifier,
-            country,
-          },
+          { identifier, country },
         ),
       );
 

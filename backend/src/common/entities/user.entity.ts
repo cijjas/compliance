@@ -20,21 +20,21 @@ export class User {
   @Exclude()
   password!: string;
 
-  @Column()
+  @Column({ name: 'first_name' })
   firstName!: string;
 
-  @Column()
+  @Column({ name: 'last_name' })
   lastName!: string;
 
   @Column({ type: 'enum', enum: UserRole, default: UserRole.VIEWER })
   role!: UserRole;
 
-  @Column({ default: true })
+  @Column({ name: 'is_active', default: true })
   isActive!: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
 }
