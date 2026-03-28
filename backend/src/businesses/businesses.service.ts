@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Business, StatusHistory } from '../common/entities';
 import { BusinessStatus } from '../common/enums';
+import { getCountryLabel } from '../common/utils/country-label.util';
 import { BusinessIdentifierValidationService } from './business-identifier-validation.service';
 import { BusinessRiskService } from './business-risk.service';
 import { BusinessStatusNotifierService } from './business-status-notifier.service';
@@ -36,11 +37,21 @@ export class BusinessesService {
       );
     }
 
-    const identifierValidated =
+    const validationResult =
       await this.businessIdentifierValidationService.validate(
         dto.taxIdentifier,
         dto.country,
       );
+
+    if (!validationResult.valid) {
+      const countryLabel = getCountryLabel(validationResult.country);
+      const expectedFormat = validationResult.format
+        ? ` Expected format: ${validationResult.format}.`
+        : '';
+      const message = `Tax identifier "${dto.taxIdentifier}" is not a valid ${countryLabel} tax ID.${expectedFormat}`;
+
+      throw new BadRequestException(message);
+    }
 
     const business = await this.dataSource.transaction(async (manager) => {
       const businessRepository = manager.getRepository(Business);
@@ -49,7 +60,7 @@ export class BusinessesService {
       const createdBusiness = businessRepository.create({
         ...dto,
         createdById: userId ?? null,
-        identifierValidated,
+        identifierValidated: validationResult.valid,
         status: BusinessStatus.PENDING,
       });
 
@@ -77,8 +88,17 @@ export class BusinessesService {
       qb.andWhere('b.status = :status', { status: query.status });
     if (query.country)
       qb.andWhere('b.country = :country', { country: query.country });
-    if (query.search)
-      qb.andWhere('b.name ILIKE :search', { search: `%${query.search}%` });
+    if (query.search) {
+      const normalizedSearch = query.search.replace(/[^A-Za-z0-9]/g, '');
+
+      qb.andWhere(
+        "(b.name ILIKE :search OR CAST(b.id AS text) ILIKE :search OR b.tax_identifier ILIKE :search OR REPLACE(REPLACE(REPLACE(b.tax_identifier, '-', ''), '.', ''), '/', '') ILIKE :normalizedSearch)",
+        {
+          search: `%${query.search}%`,
+          normalizedSearch: `%${normalizedSearch}%`,
+        },
+      );
+    }
 
     const page = query.page;
     const limit = query.limit;
@@ -142,6 +162,53 @@ export class BusinessesService {
     });
 
     return this.findOne(id);
+  }
+
+  async getStats() {
+    const qb = this.businessRepo.createQueryBuilder('b');
+
+    const [total, byStatus, avgApprovalTime] = await Promise.all([
+      qb.getCount(),
+
+      this.businessRepo
+        .createQueryBuilder('b')
+        .select('b.status', 'status')
+        .addSelect('COUNT(*)::int', 'count')
+        .groupBy('b.status')
+        .getRawMany<{ status: BusinessStatus; count: number }>(),
+
+      this.dataSource
+        .createQueryBuilder()
+        .select(
+          "AVG(EXTRACT(EPOCH FROM (sh.created_at - b.created_at)) / 86400)",
+          'days',
+        )
+        .from('status_history', 'sh')
+        .innerJoin('businesses', 'b', 'b.id = sh.business_id')
+        .where("sh.new_status = 'approved'")
+        .getRawOne<{ days: string | null }>(),
+    ]);
+
+    const statusCounts = Object.fromEntries(
+      Object.values(BusinessStatus).map((s) => [s, 0]),
+    ) as Record<BusinessStatus, number>;
+    for (const row of byStatus) {
+      statusCounts[row.status] = row.count;
+    }
+
+    const approved = statusCounts[BusinessStatus.APPROVED];
+    const rejected = statusCounts[BusinessStatus.REJECTED];
+    const resolved = approved + rejected;
+    const complianceRate = resolved > 0 ? approved / resolved : null;
+
+    return {
+      total,
+      byStatus: statusCounts,
+      avgApprovalDays: avgApprovalTime?.days
+        ? parseFloat(parseFloat(avgApprovalTime.days).toFixed(1))
+        : null,
+      complianceRate,
+    };
   }
 
   async getRiskScore(id: string) {

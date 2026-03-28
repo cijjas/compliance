@@ -5,6 +5,16 @@ import { firstValueFrom } from 'rxjs';
 
 interface FormatValidationResponse {
   valid: boolean;
+  country: string;
+  format: string;
+  failureReason?: 'invalid_format' | 'invalid_checksum';
+}
+
+export interface BusinessIdentifierValidationResult {
+  valid: boolean;
+  country: string;
+  format: string | null;
+  failureReason?: 'invalid_format' | 'invalid_checksum';
 }
 
 @Injectable()
@@ -18,7 +28,10 @@ export class BusinessIdentifierValidationService {
     private readonly configService: ConfigService,
   ) {}
 
-  async validate(identifier: string, country: string): Promise<boolean> {
+  async validate(
+    identifier: string,
+    country: string,
+  ): Promise<BusinessIdentifierValidationResult> {
     try {
       const baseUrl = this.configService.get<string>(
         'FORMAT_VALIDATION_URL',
@@ -31,12 +44,22 @@ export class BusinessIdentifierValidationService {
         ),
       );
 
-      return Boolean(data.valid);
+      return {
+        valid: Boolean(data.valid),
+        country: data.country ?? country,
+        format: data.format ?? null,
+        failureReason: data.failureReason,
+      };
     } catch (error) {
       this.logger.warn(
         `Could not validate identifier "${identifier}" for country "${country}": ${error}`,
       );
-      return false;
+      return {
+        valid: false,
+        country,
+        format: null,
+        failureReason: undefined,
+      };
     }
   }
 }

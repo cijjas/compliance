@@ -12,7 +12,6 @@ import {
 interface CalculateRiskAssessmentInput {
   country: string;
   industry: string;
-  identifierValidated: boolean;
   documentTypes: DocumentType[];
 }
 
@@ -23,7 +22,6 @@ export interface BusinessRiskAssessment {
     countryRisk: number;
     industryRisk: number;
     documentationRisk: number;
-    identifierRisk: number;
     missingDocumentTypes: DocumentType[];
   };
 }
@@ -50,7 +48,6 @@ export class BusinessRiskService {
     const assessment = this.calculateAssessment({
       country: business.country,
       industry: business.industry,
-      identifierValidated: business.identifierValidated,
       documentTypes: business.documents.map((document) => document.type),
     });
 
@@ -72,16 +69,14 @@ export class BusinessRiskService {
     const breakdown = {
       countryRisk: HIGH_RISK_COUNTRIES.has(normalizedCountry) ? 30 : 0,
       industryRisk: HIGH_RISK_INDUSTRIES.has(normalizedIndustry) ? 25 : 0,
-      documentationRisk: missingDocumentTypes.length * 20,
-      identifierRisk: input.identifierValidated ? 0 : 5,
+      documentationRisk: missingDocumentTypes.length > 0 ? 20 : 0,
       missingDocumentTypes,
     };
 
     const score = Math.min(
       breakdown.countryRisk +
         breakdown.industryRisk +
-        breakdown.documentationRisk +
-        breakdown.identifierRisk,
+        breakdown.documentationRisk,
       100,
     );
 

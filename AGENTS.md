@@ -81,6 +81,24 @@ erDiagram
 - `cd backend && npm run lint`
 - `docker compose up --build`
 
+## Frontend Map
+
+- `frontend/src/app/login`: Login page (public).
+- `frontend/src/app/(dashboard)`: Authenticated dashboard shell with sidebar and topbar.
+- `frontend/src/app/(dashboard)/page.tsx`: Companies list with filters, table, pagination, and stats.
+- `frontend/src/components/ui/`: shadcn primitives (button, badge, card, input, table, select, etc.).
+- `frontend/src/lib/api.ts`: Fetch-based API client pointing at `NEXT_PUBLIC_API_URL`.
+- `frontend/src/lib/auth.tsx`: React context for JWT token management and auth state.
+- `frontend/src/lib/types.ts`: Shared TypeScript interfaces mirroring backend entities.
+
+## Frontend Styling Rules
+
+- **Only shadcn components + Tailwind utility classes.** No custom CSS files, no CSS modules, no styled-components.
+- The only CSS file is `globals.css`, and it must only contain theme color variables (light/dark) and the base layer reset.
+- Use background color shifts to create visual boundaries between sections — never 1px solid borders for layout containment.
+- Fonts: Outfit for display/headlines (`font-display`), Inter for body/data (`font-sans`).
+- All status-related coloring uses the badge component with variant props, not inline color strings.
+
 ## Guardrails
 
 - Prefer adding business logic to dedicated services instead of growing controllers or `BusinessesService`.

@@ -14,7 +14,6 @@ describe('BusinessRiskService', () => {
     const assessment = service.calculateAssessment({
       country: 'AR',
       industry: 'technology',
-      identifierValidated: true,
       documentTypes: [
         DocumentType.FISCAL_CERTIFICATE,
         DocumentType.REGISTRATION_PROOF,
@@ -29,7 +28,6 @@ describe('BusinessRiskService', () => {
         countryRisk: 0,
         industryRisk: 0,
         documentationRisk: 0,
-        identifierRisk: 0,
         missingDocumentTypes: [],
       },
     });
@@ -39,18 +37,37 @@ describe('BusinessRiskService', () => {
     const assessment = service.calculateAssessment({
       country: 'CU',
       industry: 'casino',
-      identifierValidated: false,
       documentTypes: [DocumentType.FISCAL_CERTIFICATE],
     });
 
-    expect(assessment.score).toBe(100);
+    expect(assessment.score).toBe(75);
     expect(assessment.requiresManualReview).toBe(true);
     expect(assessment.breakdown).toEqual({
       countryRisk: 30,
       industryRisk: 25,
-      documentationRisk: 40,
-      identifierRisk: 5,
+      documentationRisk: 20,
       missingDocumentTypes: [
+        DocumentType.REGISTRATION_PROOF,
+        DocumentType.INSURANCE_POLICY,
+      ],
+    });
+  });
+
+  it('applies the documentation penalty only once even when multiple required files are missing', () => {
+    const assessment = service.calculateAssessment({
+      country: 'AR',
+      industry: 'technology',
+      documentTypes: [],
+    });
+
+    expect(assessment.score).toBe(20);
+    expect(assessment.requiresManualReview).toBe(false);
+    expect(assessment.breakdown).toEqual({
+      countryRisk: 0,
+      industryRisk: 0,
+      documentationRisk: 20,
+      missingDocumentTypes: [
+        DocumentType.FISCAL_CERTIFICATE,
         DocumentType.REGISTRATION_PROOF,
         DocumentType.INSURANCE_POLICY,
       ],

@@ -57,11 +57,11 @@ async function seed() {
   const statusHistoryRepo = ds.getRepository(StatusHistory);
   const documentRepo = ds.getRepository(Document);
 
-  // Clear existing data
-  await documentRepo.delete({});
-  await statusHistoryRepo.delete({});
-  await businessRepo.delete({});
-  await userRepo.delete({});
+  // Clear existing data (order matters for FK constraints)
+  await documentRepo.createQueryBuilder().delete().execute();
+  await statusHistoryRepo.createQueryBuilder().delete().execute();
+  await businessRepo.createQueryBuilder().delete().execute();
+  await userRepo.createQueryBuilder().delete().execute();
 
   // Create users
   const adminPassword = await bcrypt.hash('admin123', 10);

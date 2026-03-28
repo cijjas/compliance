@@ -12,7 +12,7 @@
 | **Validación de inputs**     | class-validator + class-transformer | Integración nativa con NestJS vía `ValidationPipe`. Los DTOs se decoran y validan automáticamente. Además Swagger infiere los schemas de los decoradores.                                       |
 | **ORM**                      | TypeORM                             | Decoradores y repositorios consistentes con el paradigma NestJS. `migration:generate` crea migraciones automáticas a partir de cambios en entities.                                             |
 | **Auth**                     | @nestjs/passport + @nestjs/jwt      | Estándar oficial de NestJS. Guards reutilizables, estrategias JWT listas, documentación directa.                                                                                                |
-| **Logging**                  | Pino (nestjs-pino)                  | Logging asíncrono, JSON nativo, menos boilerplate que Winston. Se integra limpio con NestJS.                                                                                                    |
+| **Logging**                  | Nest logger + JSON estructurado     | El challenge solo exige manejo consistente y, para notificaciones, permite un log estructurado simple. Se deja Pino como mejora opcional y no como requisito para reclamar cumplimiento.        |
 | **Notificaciones real-time** | SSE (Server-Sent Events)            | El challenge pide notificaciones unidireccionales (server → client al cambiar estado). SSE es exactamente eso, sin la complejidad de WebSockets. NestJS lo soporta nativamente con `@Sse()`.    |
 | **Testing unitario**         | Jest                                | NestJS viene preconfigurado con Jest. `@nestjs/testing` da utilidades para crear módulos con DI mockeada.                                                                                       |
 | **Testing e2e**              | Playwright                          | Más rápido, trae browsers incluidos, soporta parallelism y test de APIs. Cypress corre dentro del browser con limitaciones cross-origin.                                                        |
@@ -24,37 +24,37 @@
 
 ### 1.1 Dashboard
 
-- [ ] Lista de empresas visible en el dashboard
-- [ ] Empresas se muestran en sus diferentes estados: `pending`, `in_review`, `approved`, `rejected`
+- [x] Lista de empresas visible en el dashboard
+- [x] Empresas se muestran en sus diferentes estados: `pending`, `in_review`, `approved`, `rejected`
 
 ### 1.2 Formulario de registro de empresas
 
-- [ ] Campo: nombre de la empresa
-- [ ] Campo: CUIT o identificador fiscal
-- [ ] Campo: país
-- [ ] Campo: industria
-- [ ] Upload de documento: certificado fiscal
-- [ ] Upload de documento: constancia de inscripción
-- [ ] Upload de documento: póliza de seguro
+- [x] Campo: nombre de la empresa
+- [x] Campo: CUIT o identificador fiscal
+- [x] Campo: país
+- [x] Campo: industria
+- [x] Upload de documento: certificado fiscal
+- [x] Upload de documento: constancia de inscripción
+- [x] Upload de documento: póliza de seguro
 
 ### 1.3 Vista de detalle de empresa
 
-- [ ] Vista dedicada de detalle por empresa
-- [ ] Timeline de estados (historial de transiciones)
+- [x] Vista dedicada de detalle por empresa
+- [x] Timeline de estados (historial de transiciones)
 
 ### 1.4 Notificaciones en tiempo real
 
-- [ ] Sistema de notificaciones cuando cambia el estado de una empresa (vía SSE)
+- [x] Sistema de notificaciones cuando cambia el estado de una empresa (vía SSE)
 
 ### 1.5 Filtros y búsqueda
 
-- [ ] Filtro/búsqueda por nombre
-- [ ] Filtro/búsqueda por estado
-- [ ] Filtro/búsqueda por país
+- [x] Filtro/búsqueda por nombre
+- [x] Filtro/búsqueda por estado
+- [x] Filtro/búsqueda por país
 
 ### 1.6 Bonus UI
 
-- [ ] Preview de PDFs subidos (bonus, pero mencionado explícitamente)
+- [x] Preview de PDFs subidos (bonus, pero mencionado explícitamente)
 
 ---
 
@@ -78,7 +78,7 @@
 - [x] Factor: Documentación completa (falta algún documento = +20 puntos de riesgo)
 - [x] Score en rango 0–100
 - [x] Score > 70 = requiere revisión manual
-- [ ] Suposiciones documentadas donde sea necesario
+- [x] Suposiciones documentadas donde sea necesario
 
 ### 2.3 Integración con servicio externo mock (validación CUIT/RFC)
 
@@ -89,7 +89,7 @@
 ### 2.4 Sistema de notificaciones
 
 - [x] Cuando cambia el estado de una empresa, se envía notificación
-- [x] Implementado como: log estructurado con Pino + SSE al frontend
+- [x] Implementado como: log estructurado JSON + SSE al frontend
 
 ### 2.5 Tests
 
@@ -108,7 +108,7 @@
 
 ### 3.2 Diagrama
 
-- [ ] Diagrama simple del modelo de datos (recomendado, ayuda en la defensa)
+- [x] Diagrama simple del modelo de datos (recomendado, ayuda en la defensa)
 
 ### 3.3 Migraciones
 
@@ -149,13 +149,13 @@
 
 - [x] Docker Compose para levantar todo el stack localmente (backend + microservicio CUIT + PostgreSQL +
       frontend)
-- [ ] README con instrucciones claras de setup
+- [x] README con instrucciones claras de setup
 - [x] Variables de entorno bien documentadas (`.env.example`)
 - [x] Manejo de errores consistente (NestJS exception filters)
 - [x] Validación de inputs (class-validator + class-transformer)
 - [x] Tests unitarios clave con Jest (ej: cálculo de risk score, validación de documentos)
 - [x] Postman / Thunder Client collection con ejemplos de requests
-- [ ] Archivo `AGENTS.md` explicando la arquitectura para que un AI agent pueda navegar el código
+- [x] Archivo `AGENTS.md` explicando la arquitectura para que un AI agent pueda navegar el código
 - [x] OpenAPI / Swagger docs (auto-generado con @nestjs/swagger)
 
 ---
@@ -185,10 +185,10 @@
 
 ## 9. DOCUMENTACIÓN DE DUDAS
 
-- [ ] Archivo `QUESTIONS.md` con:
-  - [ ] Dudas que surgieron durante el desarrollo
-  - [ ] Decisión tomada para cada duda
-  - [ ] Razonamiento detrás de cada decisión
+- [x] Archivo `QUESTIONS.md` con:
+  - [x] Dudas que surgieron durante el desarrollo
+  - [x] Decisión tomada para cada duda
+  - [x] Razonamiento detrás de cada decisión
 
 ---
 

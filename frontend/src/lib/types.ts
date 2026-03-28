@@ -1,10 +1,20 @@
-export type BusinessStatus = "pending" | "in_review" | "approved" | "rejected";
-export type UserRole = "admin" | "viewer";
-export type DocumentType =
-  | "fiscal_certificate"
-  | "registration_proof"
-  | "insurance_policy"
-  | "other";
+export enum BusinessStatus {
+  PENDING = "pending",
+  IN_REVIEW = "in_review",
+  APPROVED = "approved",
+  REJECTED = "rejected",
+}
+
+export enum UserRole {
+  ADMIN = "admin",
+  VIEWER = "viewer",
+}
+
+export enum DocumentType {
+  FISCAL_CERTIFICATE = "fiscal_certificate",
+  REGISTRATION_PROOF = "registration_proof",
+  INSURANCE_POLICY = "insurance_policy",
+}
 
 export interface User {
   id: string;
@@ -12,9 +22,6 @@ export interface User {
   firstName: string;
   lastName: string;
   role: UserRole;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface Business {
@@ -26,7 +33,6 @@ export interface Business {
   status: BusinessStatus;
   riskScore: number | null;
   identifierValidated: boolean;
-  createdBy: User | null;
   createdById: string | null;
   documents: Document[];
   statusHistory: StatusHistoryEntry[];
@@ -51,8 +57,7 @@ export interface StatusHistoryEntry {
   previousStatus: BusinessStatus | null;
   newStatus: BusinessStatus;
   reason: string | null;
-  changedBy: User | null;
-  changedById: string | null;
+  changedBy: Pick<User, "id" | "firstName" | "lastName"> | null;
   createdAt: string;
 }
 
@@ -64,19 +69,28 @@ export interface PaginatedResponse<T> {
   totalPages: number;
 }
 
-export interface AuthResponse {
+export interface LoginResponse {
   accessToken: string;
-  user: Pick<User, "id" | "email" | "firstName" | "lastName" | "role">;
+  user: User;
 }
 
-export interface RiskScoreResponse {
+export interface BusinessStats {
+  total: number;
+  byStatus: Record<string, number>;
+  avgApprovalDays: number | null;
+  complianceRate: number | null;
+}
+
+export interface BusinessRiskBreakdown {
+  countryRisk: number;
+  industryRisk: number;
+  documentationRisk: number;
+  missingDocumentTypes: DocumentType[];
+}
+
+export interface BusinessRiskAssessment {
   businessId: string;
   score: number;
   requiresManualReview: boolean;
-  breakdown: {
-    countryRisk: number;
-    industryRisk: number;
-    documentationRisk: number;
-    identifierRisk: number;
-  };
+  breakdown: BusinessRiskBreakdown;
 }

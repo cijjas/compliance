@@ -29,13 +29,16 @@ complif/
 ```bash
 cp .env.example .env
 docker compose up --build
+docker compose exec backend npm run seed
 ```
 
 Services will be available at:
 - Frontend: http://localhost:3000
-- Backend API: http://localhost:3002/api
-- Swagger Docs: http://localhost:3002/api/docs
+- Backend API: http://localhost:8080/api
+- Swagger Docs: http://localhost:8080/api/docs
 - Format Validation: http://localhost:3001
+
+The extra `seed` step loads the default users plus sample companies required by the challenge.
 
 ### Local Development
 
@@ -45,17 +48,18 @@ Services will be available at:
 # 1. Start PostgreSQL and create the database
 createdb complif
 
-# 2. Setup backend
+# 2. Setup the format-validation microservice
+cd microservice-format-validation
+cp .env.example .env
+npm install
+npm run start:dev
+
+# 3. Setup backend
 cd backend
 cp .env.example .env
 npm install
 npm run migration:run
 npm run seed
-npm run start:dev
-
-# 3. Setup microservice
-cd microservice-format-validation
-npm install
 npm run start:dev
 
 # 4. Setup frontend
@@ -99,6 +103,10 @@ npm run dev
 ## Environment Variables
 
 See `.env.example` at the root and in each service directory.
+
+## Assumptions and Decisions
+
+See `QUESTIONS.md` for the challenge assumptions that were made where the PDF leaves implementation details open, including the exact risk-score weights and the mock identifier-validation behavior.
 
 ## Agent Navigation
 

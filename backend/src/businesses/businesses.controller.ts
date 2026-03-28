@@ -42,6 +42,11 @@ export class BusinessesController {
     return this.businessesService.findAll(query);
   }
 
+  @Get('stats')
+  getStats() {
+    return this.businessesService.getStats();
+  }
+
   @Get(':id')
   findOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.businessesService.findOne(id);
