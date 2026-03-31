@@ -1,6 +1,12 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 import { BusinessStatus } from '../../common/enums';
 import { trimString } from '../../common/utils/string-transform.util';
 
@@ -9,9 +15,14 @@ export class UpdateStatusDto {
   @IsEnum(BusinessStatus)
   status!: BusinessStatus;
 
-  @ApiPropertyOptional({ example: 'All documentation verified' })
+  @ApiProperty({
+    example:
+      'Case reviewed by compliance analyst after verifying supporting evidence.',
+  })
   @Transform(({ value }) => trimString(value))
-  @IsOptional()
   @IsString()
-  reason?: string;
+  @IsNotEmpty()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
 }

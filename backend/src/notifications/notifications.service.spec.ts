@@ -1,6 +1,9 @@
 import { firstValueFrom } from 'rxjs';
 import { BusinessStatus } from '../common/enums';
-import { NotificationsService, StatusChangeEvent } from './notifications.service';
+import {
+  NotificationsService,
+  StatusChangeEvent,
+} from './notifications.service';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;

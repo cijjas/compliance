@@ -8,13 +8,22 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Business, StatusHistory } from '../common/entities';
 import { BusinessStatus } from '../common/enums';
-import { getCountryLabel } from '../common/utils/country-label.util';
-import { BusinessIdentifierValidationService } from './business-identifier-validation.service';
-import { BusinessRiskService } from './business-risk.service';
-import { BusinessStatusNotifierService } from './business-status-notifier.service';
+import {
+  canTransitionBusinessStatus,
+  getBusinessStatusTransitionErrorMessage,
+} from './business-status-policy';
+import { BusinessIdentifierValidationService } from './validation/business-identifier-validation.service';
+import { BusinessRiskService } from './risk/business-risk.service';
+import { BusinessStatusNotifierService } from './notifier/business-status-notifier.service';
 import { CreateBusinessDto } from './dto/create-business.dto';
+import { DeleteBusinessDto } from './dto/delete-business.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { ListBusinessesDto } from './dto/list-businesses.dto';
+import { PreviewRiskDto } from './dto/preview-risk.dto';
+import {
+  BusinessReferenceData,
+  BusinessReferenceDataService,
+} from './reference-data.service';
 
 @Injectable()
 export class BusinessesService {
@@ -22,33 +31,100 @@ export class BusinessesService {
     @InjectRepository(Business)
     private readonly businessRepo: Repository<Business>,
     private readonly dataSource: DataSource,
+    private readonly businessReferenceDataService: BusinessReferenceDataService,
     private readonly businessRiskService: BusinessRiskService,
     private readonly businessIdentifierValidationService: BusinessIdentifierValidationService,
     private readonly businessStatusNotifierService: BusinessStatusNotifierService,
   ) {}
 
+  private buildDuplicateTaxIdentifierMessage(isArchived: boolean): string {
+    return isArchived
+      ? 'A business with this tax identifier already exists in archived records and cannot be recreated.'
+      : 'Business with this tax identifier already exists';
+  }
+
+  private async findBusinessIncludingDeleted(id: string): Promise<Business> {
+    const business = await this.businessRepo.findOne({
+      where: { id },
+      withDeleted: true,
+    });
+
+    if (!business) {
+      throw new NotFoundException('Business not found');
+    }
+
+    return business;
+  }
+
+  async checkTaxIdentifier(
+    taxIdentifier: string,
+    country: string,
+  ): Promise<{ available: boolean; valid: boolean; message?: string }> {
+    const countryPolicy =
+      await this.businessReferenceDataService.assertActiveCountry(country);
+    const existing = await this.businessRepo.findOne({
+      where: { taxIdentifier: taxIdentifier.trim().toUpperCase() },
+      withDeleted: true,
+    });
+    if (existing) {
+      return {
+        available: false,
+        valid: true,
+        message: this.buildDuplicateTaxIdentifierMessage(
+          existing.deletedAt !== null,
+        ),
+      };
+    }
+
+    const validationResult =
+      await this.businessIdentifierValidationService.validate(
+        taxIdentifier,
+        countryPolicy.code,
+      );
+
+    if (!validationResult.valid) {
+      const expectedFormat = validationResult.format
+        ? ` Expected format: ${validationResult.format}.`
+        : '';
+      return {
+        available: false,
+        valid: false,
+        message: `Not a valid ${countryPolicy.name} tax ID.${expectedFormat}`,
+      };
+    }
+
+    return { available: true, valid: true };
+  }
+
   async create(dto: CreateBusinessDto, userId?: string): Promise<Business> {
+    const { country, industry } =
+      await this.businessReferenceDataService.assertSupportedBusinessProfile(
+        dto.country,
+        dto.industry,
+      );
     const existingBusiness = await this.businessRepo.findOne({
       where: { taxIdentifier: dto.taxIdentifier },
+      withDeleted: true,
     });
     if (existingBusiness) {
       throw new ConflictException(
-        'Business with this tax identifier already exists',
+        this.buildDuplicateTaxIdentifierMessage(
+          existingBusiness.deletedAt !== null,
+        ),
       );
     }
 
     const validationResult =
       await this.businessIdentifierValidationService.validate(
         dto.taxIdentifier,
-        dto.country,
+        country.code,
       );
 
     if (!validationResult.valid) {
-      const countryLabel = getCountryLabel(validationResult.country);
       const expectedFormat = validationResult.format
         ? ` Expected format: ${validationResult.format}.`
         : '';
-      const message = `Tax identifier "${dto.taxIdentifier}" is not a valid ${countryLabel} tax ID.${expectedFormat}`;
+      const message = `Tax identifier "${dto.taxIdentifier}" is not a valid ${country.name} tax ID.${expectedFormat}`;
 
       throw new BadRequestException(message);
     }
@@ -59,6 +135,8 @@ export class BusinessesService {
 
       const createdBusiness = businessRepository.create({
         ...dto,
+        country: country.code,
+        industry: industry.key,
         createdById: userId ?? null,
         identifierValidated: validationResult.valid,
         status: BusinessStatus.PENDING,
@@ -84,10 +162,14 @@ export class BusinessesService {
   async findAll(query: ListBusinessesDto) {
     const qb = this.businessRepo.createQueryBuilder('b');
 
+    qb.andWhere('b.deleted_at IS NULL');
+
     if (query.status)
       qb.andWhere('b.status = :status', { status: query.status });
     if (query.country)
       qb.andWhere('b.country = :country', { country: query.country });
+    if (query.industry)
+      qb.andWhere('b.industry = :industry', { industry: query.industry });
     if (query.search) {
       const normalizedSearch = query.search.replace(/[^A-Za-z0-9]/g, '');
 
@@ -120,6 +202,7 @@ export class BusinessesService {
       .leftJoinAndSelect('sh.changedBy', 'shUser')
       .leftJoinAndSelect('b.createdBy', 'creator')
       .where('b.id = :id', { id })
+      .andWhere('b.deleted_at IS NULL')
       .addOrderBy('sh.created_at', 'ASC')
       .addOrderBy('doc.created_at', 'DESC')
       .getOne();
@@ -138,6 +221,11 @@ export class BusinessesService {
     }
 
     const previousStatus = business.status;
+    if (!canTransitionBusinessStatus(previousStatus, dto.status)) {
+      throw new BadRequestException(
+        getBusinessStatusTransitionErrorMessage(previousStatus, dto.status),
+      );
+    }
 
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(Business).update(id, {
@@ -164,14 +252,38 @@ export class BusinessesService {
     return this.findOne(id);
   }
 
+  async remove(
+    id: string,
+    dto: DeleteBusinessDto,
+    userId?: string,
+  ): Promise<void> {
+    const business = await this.findBusinessIncludingDeleted(id);
+
+    if (business.deletedAt) {
+      throw new BadRequestException('Business already deleted');
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const businessRepository = manager.getRepository(Business);
+
+      await businessRepository.update(id, {
+        deletionReason: dto.reason,
+        deletedById: userId ?? null,
+      });
+      await businessRepository.softDelete(id);
+    });
+  }
+
   async getStats() {
     const qb = this.businessRepo.createQueryBuilder('b');
+    qb.where('b.deleted_at IS NULL');
 
     const [total, byStatus, avgApprovalTime] = await Promise.all([
       qb.getCount(),
 
       this.businessRepo
         .createQueryBuilder('b')
+        .where('b.deleted_at IS NULL')
         .select('b.status', 'status')
         .addSelect('COUNT(*)::int', 'count')
         .groupBy('b.status')
@@ -180,12 +292,13 @@ export class BusinessesService {
       this.dataSource
         .createQueryBuilder()
         .select(
-          "AVG(EXTRACT(EPOCH FROM (sh.created_at - b.created_at)) / 86400)",
+          'AVG(EXTRACT(EPOCH FROM (sh.created_at - b.created_at)) / 86400)',
           'days',
         )
         .from('status_history', 'sh')
         .innerJoin('businesses', 'b', 'b.id = sh.business_id')
         .where("sh.new_status = 'approved'")
+        .andWhere('b.deleted_at IS NULL')
         .getRawOne<{ days: string | null }>(),
     ]);
 
@@ -219,5 +332,23 @@ export class BusinessesService {
       businessId: id,
       ...assessment,
     };
+  }
+
+  async previewRiskScore(dto: PreviewRiskDto) {
+    const { country, industry } =
+      await this.businessReferenceDataService.assertSupportedBusinessProfile(
+        dto.country,
+        dto.industry,
+      );
+
+    return this.businessRiskService.calculateAssessment({
+      country: country.code,
+      industry: industry.key,
+      documentTypes: dto.documentTypes,
+    });
+  }
+
+  getReferenceData(): Promise<BusinessReferenceData> {
+    return this.businessReferenceDataService.getReferenceData();
   }
 }

@@ -17,7 +17,7 @@ async function bootstrap() {
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Format Validation Microservice')
-    .setDescription('Validates CUIT/RFC/CNPJ fiscal identifiers by country')
+    .setDescription('Validates company tax IDs by country')
     .setVersion('1.0')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);

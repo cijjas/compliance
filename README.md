@@ -8,7 +8,7 @@ Portal for internal users to onboard companies, manage their documentation and c
 complif/
 ├── frontend/                  # Next.js 15 + shadcn/ui + Tailwind CSS
 ├── backend/                   # NestJS + TypeORM + PostgreSQL
-├── microservice-format-validation/  # CUIT/RFC/CNPJ format validator
+├── microservice-format-validation/  # Country-specific tax ID validator
 └── docker-compose.yml
 ```
 
@@ -18,7 +18,7 @@ complif/
 |-------|-----------|
 | Frontend | Next.js, React, shadcn/ui, Tailwind CSS, Lucide Icons |
 | Backend | NestJS, TypeORM, PostgreSQL, Passport JWT |
-| Microservice | NestJS (lightweight CUIT/RFC validator) |
+| Microservice | NestJS (lightweight country-specific tax ID validator) |
 | Database | PostgreSQL 16 |
 | Containerization | Docker, Docker Compose |
 

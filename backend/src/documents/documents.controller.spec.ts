@@ -28,14 +28,14 @@ function buildMockDocument(overrides: Partial<Document> = {}): Document {
 describe('DocumentsController', () => {
   let controller: DocumentsController;
   let documentsService: jest.Mocked<
-    Pick<DocumentsService, 'upload' | 'findByBusiness' | 'findOne'>
+    Pick<DocumentsService, 'upload' | 'findByBusiness' | 'findOneForBusiness'>
   >;
 
   beforeEach(async () => {
     documentsService = {
       upload: jest.fn(),
       findByBusiness: jest.fn(),
-      findOne: jest.fn(),
+      findOneForBusiness: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -84,10 +84,15 @@ describe('DocumentsController', () => {
       mimeType: 'application/pdf',
       fileName: 'fiscal-certificate.pdf',
     });
-    documentsService.findOne.mockResolvedValue(doc);
+    documentsService.findOneForBusiness.mockResolvedValue(doc);
 
     // We only verify delegation — streaming depends on the filesystem
-    await expect(documentsService.findOne(doc.id)).resolves.toEqual(doc);
-    expect(documentsService.findOne).toHaveBeenCalledWith(doc.id);
+    await expect(
+      documentsService.findOneForBusiness(doc.businessId, doc.id),
+    ).resolves.toEqual(doc);
+    expect(documentsService.findOneForBusiness).toHaveBeenCalledWith(
+      doc.businessId,
+      doc.id,
+    );
   });
 });

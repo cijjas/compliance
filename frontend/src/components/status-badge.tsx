@@ -4,16 +4,18 @@ import { STATUS_LABELS } from "@/lib/constants";
 
 const STATUS_VARIANT: Record<
   BusinessStatus,
-  "default" | "secondary" | "destructive" | "success"
+  "default" | "secondary" | "destructive" | "success" | "warning"
 > = {
-  [BusinessStatus.PENDING]: "secondary",
+  [BusinessStatus.PENDING]: "warning",
   [BusinessStatus.IN_REVIEW]: "default",
   [BusinessStatus.APPROVED]: "success",
   [BusinessStatus.REJECTED]: "destructive",
 };
 
+export function getStatusBadgeVariant(status: BusinessStatus) {
+  return STATUS_VARIANT[status];
+}
+
 export function StatusBadge({ status }: { status: BusinessStatus }) {
-  return (
-    <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABELS[status]}</Badge>
-  );
+  return <Badge variant={getStatusBadgeVariant(status)}>{STATUS_LABELS[status]}</Badge>;
 }

@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpStatus,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
@@ -17,7 +18,7 @@ import { ParseFilePipeBuilder } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiConsumes } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
 import { extname, resolve } from 'path';
-import { createReadStream } from 'fs';
+import { createReadStream, existsSync } from 'fs';
 import { v4 as uuid } from 'uuid';
 import type { Response } from 'express';
 import { DocumentsService } from './documents.service';
@@ -79,11 +80,15 @@ export class DocumentsController {
 
   @Get(':id/download')
   async download(
+    @Param('businessId', new ParseUUIDPipe()) businessId: string,
     @Param('id', new ParseUUIDPipe()) id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const doc = await this.documentsService.findOne(id);
+    const doc = await this.documentsService.findOneForBusiness(businessId, id);
     const filePath = resolve(doc.filePath);
+    if (!existsSync(filePath)) {
+      throw new NotFoundException('Document file not found');
+    }
     const stream = createReadStream(filePath);
 
     res.set({

@@ -6,6 +6,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { DocumentType } from '../enums';
 import { Business } from './business.entity';
 
@@ -29,6 +30,7 @@ export class Document {
   @Column({ name: 'file_name' })
   fileName!: string;
 
+  @Exclude()
   @Column({ name: 'file_path' })
   filePath!: string;
 

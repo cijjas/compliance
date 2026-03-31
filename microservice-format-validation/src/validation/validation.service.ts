@@ -15,10 +15,7 @@ export class ValidationService {
       failureReason?: 'invalid_format' | 'invalid_checksum';
     };
 
-    const validators: Record<
-      string,
-      (id: string) => ValidationResult
-    > = {
+    const validators: Record<string, (id: string) => ValidationResult> = {
       AR: (id) => this.validateCUIT(id),
       MX: (id) => this.validateRFC(id),
       BR: (id) => this.validateCNPJ(id),

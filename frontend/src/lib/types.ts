@@ -94,3 +94,25 @@ export interface BusinessRiskAssessment {
   requiresManualReview: boolean;
   breakdown: BusinessRiskBreakdown;
 }
+
+export interface CountryReference {
+  code: string;
+  name: string;
+  riskPoints: number;
+}
+
+export interface IndustryReference {
+  key: string;
+  label: string;
+  riskPoints: number;
+}
+
+export interface BusinessReferenceData {
+  countries: CountryReference[];
+  industries: IndustryReference[];
+  riskSettings: {
+    documentationRiskPoints: number;
+    manualReviewThreshold: number;
+  };
+  requiredDocumentTypes: DocumentType[];
+}

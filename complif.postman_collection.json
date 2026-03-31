@@ -26,7 +26,7 @@
           }
         },
         {
-          "name": "Validate CUIT (Argentina)",
+          "name": "Validate Argentina Tax ID",
           "request": {
             "method": "POST",
             "url": "{{microserviceUrl}}/validate/identifier",
@@ -39,7 +39,7 @@
           }
         },
         {
-          "name": "Validate RFC (Mexico)",
+          "name": "Validate Mexico Tax ID",
           "request": {
             "method": "POST",
             "url": "{{microserviceUrl}}/validate/identifier",
@@ -52,7 +52,7 @@
           }
         },
         {
-          "name": "Validate CNPJ (Brazil)",
+          "name": "Validate Brazil Tax ID",
           "request": {
             "method": "POST",
             "url": "{{microserviceUrl}}/validate/identifier",

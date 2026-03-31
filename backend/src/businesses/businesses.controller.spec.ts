@@ -5,8 +5,11 @@ import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.
 import { BusinessesController } from './businesses.controller';
 import { BusinessesService } from './businesses.service';
 import { CreateBusinessDto } from './dto/create-business.dto';
+import { DeleteBusinessDto } from './dto/delete-business.dto';
 import { ListBusinessesDto } from './dto/list-businesses.dto';
+import { PreviewRiskDto } from './dto/preview-risk.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
+import { BusinessReferenceData } from './reference-data.service';
 
 function buildMockBusiness(overrides: Partial<Business> = {}): Business {
   return {
@@ -33,7 +36,16 @@ describe('BusinessesController', () => {
   let businessesService: jest.Mocked<
     Pick<
       BusinessesService,
-      'create' | 'findAll' | 'findOne' | 'updateStatus' | 'getRiskScore' | 'getStats'
+      | 'create'
+      | 'findAll'
+      | 'findOne'
+      | 'checkTaxIdentifier'
+      | 'previewRiskScore'
+      | 'updateStatus'
+      | 'remove'
+      | 'getRiskScore'
+      | 'getStats'
+      | 'getReferenceData'
     >
   >;
 
@@ -42,9 +54,13 @@ describe('BusinessesController', () => {
       create: jest.fn(),
       findAll: jest.fn(),
       findOne: jest.fn(),
+      checkTaxIdentifier: jest.fn(),
+      previewRiskScore: jest.fn(),
       updateStatus: jest.fn(),
+      remove: jest.fn(),
       getRiskScore: jest.fn(),
       getStats: jest.fn(),
+      getReferenceData: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -101,6 +117,44 @@ describe('BusinessesController', () => {
     );
   });
 
+  it('checkTaxId delegates to the businesses service', async () => {
+    const result = {
+      available: true,
+      valid: true,
+    };
+    businessesService.checkTaxIdentifier.mockResolvedValue(result);
+
+    await expect(controller.checkTaxId('20-12345678-6', 'AR')).resolves.toEqual(
+      result,
+    );
+    expect(businessesService.checkTaxIdentifier).toHaveBeenCalledWith(
+      '20-12345678-6',
+      'AR',
+    );
+  });
+
+  it('previewRiskScore delegates to the businesses service', async () => {
+    const dto: PreviewRiskDto = {
+      country: 'AR',
+      industry: 'technology',
+      documentTypes: [],
+    };
+    const result = {
+      score: 20,
+      requiresManualReview: false,
+      breakdown: {
+        countryRisk: 0,
+        industryRisk: 0,
+        documentationRisk: 20,
+        missingDocumentTypes: [],
+      },
+    };
+    businessesService.previewRiskScore.mockResolvedValue(result);
+
+    await expect(controller.previewRiskScore(dto)).resolves.toEqual(result);
+    expect(businessesService.previewRiskScore).toHaveBeenCalledWith(dto);
+  });
+
   it('updateStatus delegates to the businesses service', async () => {
     const dto: UpdateStatusDto = {
       status: 'approved' as UpdateStatusDto['status'],
@@ -122,6 +176,27 @@ describe('BusinessesController', () => {
       ),
     ).resolves.toEqual(result);
     expect(businessesService.updateStatus).toHaveBeenCalledWith(
+      '8f5f6fa8-c6cf-4df2-9107-b29339af22a6',
+      dto,
+      user.id,
+    );
+  });
+
+  it('remove delegates to the businesses service', async () => {
+    const dto: DeleteBusinessDto = {
+      reason: 'Duplicate onboarding record archived for audit retention.',
+    };
+    const user: AuthenticatedUser = {
+      id: 'admin-1',
+      email: 'admin@complif.com',
+      role: UserRole.ADMIN,
+    };
+    businessesService.remove.mockResolvedValue(undefined);
+
+    await expect(
+      controller.remove('8f5f6fa8-c6cf-4df2-9107-b29339af22a6', dto, user),
+    ).resolves.toBeUndefined();
+    expect(businessesService.remove).toHaveBeenCalledWith(
       '8f5f6fa8-c6cf-4df2-9107-b29339af22a6',
       dto,
       user.id,
@@ -161,5 +236,21 @@ describe('BusinessesController', () => {
 
     await expect(controller.getStats()).resolves.toEqual(result);
     expect(businessesService.getStats).toHaveBeenCalled();
+  });
+
+  it('getReferenceData delegates to the businesses service', async () => {
+    const result: BusinessReferenceData = {
+      countries: [{ code: 'AR', name: 'Argentina', riskPoints: 0 }],
+      industries: [{ key: 'technology', label: 'Technology', riskPoints: 0 }],
+      riskSettings: {
+        documentationRiskPoints: 20,
+        manualReviewThreshold: 70,
+      },
+      requiredDocumentTypes: [],
+    };
+    businessesService.getReferenceData.mockResolvedValue(result);
+
+    await expect(controller.getReferenceData()).resolves.toEqual(result);
+    expect(businessesService.getReferenceData).toHaveBeenCalled();
   });
 });

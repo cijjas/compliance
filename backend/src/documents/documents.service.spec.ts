@@ -1,13 +1,15 @@
 import { NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
-import { BusinessRiskService } from '../businesses/business-risk.service';
+import { BusinessRiskService } from '../businesses/risk/business-risk.service';
 import { Business, Document } from '../common/entities';
 import { DocumentType } from '../common/enums';
 import { DocumentsService } from './documents.service';
 
 describe('DocumentsService', () => {
   let service: DocumentsService;
-  let documentRepo: jest.Mocked<Pick<Repository<Document>, 'create' | 'save' | 'findOne' | 'find'>>;
+  let documentRepo: jest.Mocked<
+    Pick<Repository<Document>, 'create' | 'save' | 'findOne' | 'find'>
+  >;
   let businessRepo: jest.Mocked<Pick<Repository<Business>, 'findOne'>>;
   let riskService: jest.Mocked<
     Pick<BusinessRiskService, 'refreshBusinessRiskScore'>
@@ -95,7 +97,7 @@ describe('DocumentsService', () => {
     expect(riskService.refreshBusinessRiskScore).not.toHaveBeenCalled();
   });
 
-  it('findOne returns the document when it exists', async () => {
+  it('findOneForBusiness returns the document when it exists', async () => {
     const doc = {
       id: 'document-1',
       businessId: 'business-1',
@@ -105,20 +107,24 @@ describe('DocumentsService', () => {
       mimeType: 'application/pdf',
       fileSize: 1024,
     } as Document;
+    businessRepo.findOne.mockResolvedValue({ id: 'business-1' } as Business);
     documentRepo.findOne.mockResolvedValue(doc);
 
-    await expect(service.findOne('document-1')).resolves.toBe(doc);
+    await expect(
+      service.findOneForBusiness('business-1', 'document-1'),
+    ).resolves.toBe(doc);
     expect(documentRepo.findOne).toHaveBeenCalledWith({
-      where: { id: 'document-1' },
+      where: { id: 'document-1', businessId: 'business-1' },
     });
   });
 
-  it('findOne throws NotFoundException when the document does not exist', async () => {
+  it('findOneForBusiness throws NotFoundException when the document does not exist', async () => {
+    businessRepo.findOne.mockResolvedValue({ id: 'business-1' } as Business);
     documentRepo.findOne.mockResolvedValue(null);
 
-    await expect(service.findOne('missing-id')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.findOneForBusiness('business-1', 'missing-id'),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 
   it('findByBusiness returns documents ordered by creation date', async () => {
@@ -126,6 +132,7 @@ describe('DocumentsService', () => {
       { id: 'doc-2', businessId: 'business-1' },
       { id: 'doc-1', businessId: 'business-1' },
     ] as Document[];
+    businessRepo.findOne.mockResolvedValue({ id: 'business-1' } as Business);
     documentRepo.find.mockResolvedValue(docs);
 
     await expect(service.findByBusiness('business-1')).resolves.toBe(docs);

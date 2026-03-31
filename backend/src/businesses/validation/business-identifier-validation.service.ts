@@ -1,5 +1,9 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { firstValueFrom } from 'rxjs';
 
@@ -54,12 +58,9 @@ export class BusinessIdentifierValidationService {
       this.logger.warn(
         `Could not validate identifier "${identifier}" for country "${country}": ${error}`,
       );
-      return {
-        valid: false,
-        country,
-        format: null,
-        failureReason: undefined,
-      };
+      throw new ServiceUnavailableException(
+        'Tax identifier validation is temporarily unavailable. Please retry in a few moments.',
+      );
     }
   }
 }

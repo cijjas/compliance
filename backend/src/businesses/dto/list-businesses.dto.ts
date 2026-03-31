@@ -3,6 +3,7 @@ import { IsOptional, IsString, IsEnum, IsInt, Max, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { BusinessStatus } from '../../common/enums';
 import {
+  trimLowercaseString,
   trimString,
   trimUppercaseString,
 } from '../../common/utils/string-transform.util';
@@ -13,13 +14,28 @@ export class ListBusinessesDto {
   @IsEnum(BusinessStatus)
   status?: BusinessStatus;
 
-  @ApiPropertyOptional({ example: 'AR', description: 'ISO 3166-1 alpha-2 country code' })
+  @ApiPropertyOptional({
+    example: 'AR',
+    description: 'ISO 3166-1 alpha-2 country code',
+  })
   @Transform(({ value }) => trimUppercaseString(value))
   @IsOptional()
   @IsString()
   country?: string;
 
-  @ApiPropertyOptional({ example: 'Acme', description: 'Search by business name' })
+  @ApiPropertyOptional({
+    example: 'technology',
+    description: 'Filter by industry',
+  })
+  @Transform(({ value }) => trimLowercaseString(value))
+  @IsOptional()
+  @IsString()
+  industry?: string;
+
+  @ApiPropertyOptional({
+    example: 'Acme',
+    description: 'Search by business name',
+  })
   @Transform(({ value }) => trimString(value))
   @IsOptional()
   @IsString()

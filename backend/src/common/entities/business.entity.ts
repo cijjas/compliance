@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  DeleteDateColumn,
   OneToMany,
   ManyToOne,
   JoinColumn,
@@ -50,6 +51,16 @@ export class Business {
   @Column({ name: 'created_by_id', nullable: true })
   createdById!: string | null;
 
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'deleted_by_id' })
+  deletedBy!: User | null;
+
+  @Column({ name: 'deleted_by_id', nullable: true })
+  deletedById!: string | null;
+
+  @Column({ name: 'deletion_reason', type: 'text', nullable: true })
+  deletionReason!: string | null;
+
   @OneToMany(() => Document, (doc) => doc.business, { cascade: true })
   documents!: Document[];
 
@@ -61,4 +72,7 @@ export class Business {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt!: Date;
+
+  @DeleteDateColumn({ name: 'deleted_at', nullable: true })
+  deletedAt!: Date | null;
 }

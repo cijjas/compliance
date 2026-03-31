@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { BusinessRiskService } from '../businesses/business-risk.service';
+import { BusinessRiskService } from '../businesses/risk/business-risk.service';
 import { Document, Business } from '../common/entities';
 import { DocumentType } from '../common/enums';
 
@@ -13,15 +13,22 @@ export class DocumentsService {
     private readonly businessRiskService: BusinessRiskService,
   ) {}
 
+  private async assertActiveBusinessExists(businessId: string): Promise<void> {
+    const business = await this.businessRepo.findOne({
+      where: { id: businessId },
+    });
+
+    if (!business) {
+      throw new NotFoundException('Business not found');
+    }
+  }
+
   async upload(
     businessId: string,
     file: Express.Multer.File,
     type: DocumentType,
   ): Promise<Document> {
-    const business = await this.businessRepo.findOne({
-      where: { id: businessId },
-    });
-    if (!business) throw new NotFoundException('Business not found');
+    await this.assertActiveBusinessExists(businessId);
 
     const doc = this.documentRepo.create({
       businessId,
@@ -39,14 +46,18 @@ export class DocumentsService {
   }
 
   async findByBusiness(businessId: string): Promise<Document[]> {
+    await this.assertActiveBusinessExists(businessId);
+
     return this.documentRepo.find({
       where: { businessId },
       order: { createdAt: 'DESC' },
     });
   }
 
-  async findOne(id: string): Promise<Document> {
-    const doc = await this.documentRepo.findOne({ where: { id } });
+  async findOneForBusiness(businessId: string, id: string): Promise<Document> {
+    await this.assertActiveBusinessExists(businessId);
+
+    const doc = await this.documentRepo.findOne({ where: { id, businessId } });
     if (!doc) throw new NotFoundException('Document not found');
     return doc;
   }

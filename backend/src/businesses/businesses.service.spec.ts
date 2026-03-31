@@ -1,13 +1,23 @@
-import { BadRequestException, ConflictException } from "@nestjs/common";
-import { DataSource, Repository } from "typeorm";
-import { Business } from "../common/entities";
-import { BusinessStatus } from "../common/enums";
-import { BusinessIdentifierValidationService } from "./business-identifier-validation.service";
-import { BusinessRiskService } from "./business-risk.service";
-import { BusinessStatusNotifierService } from "./business-status-notifier.service";
-import { BusinessesService } from "./businesses.service";
-import { CreateBusinessDto } from "./dto/create-business.dto";
-import { UpdateStatusDto } from "./dto/update-status.dto";
+import {
+  BadRequestException,
+  ConflictException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { DataSource, Repository } from 'typeorm';
+import { Business } from '../common/entities';
+import { BusinessStatus } from '../common/enums';
+import { BusinessIdentifierValidationService } from './validation/business-identifier-validation.service';
+import { BusinessRiskService } from './risk/business-risk.service';
+import { BusinessRiskAssessment } from './risk/business-risk.policy';
+import { BusinessStatusNotifierService } from './notifier/business-status-notifier.service';
+import {
+  BusinessReferenceData,
+  BusinessReferenceDataService,
+} from './reference-data.service';
+import { BusinessesService } from './businesses.service';
+import { CreateBusinessDto } from './dto/create-business.dto';
+import { PreviewRiskDto } from './dto/preview-risk.dto';
+import { UpdateStatusDto } from './dto/update-status.dto';
 
 type TransactionManagerMock = {
   getRepository: (entity: unknown) => unknown;
@@ -15,9 +25,11 @@ type TransactionManagerMock = {
 
 type TransactionHandler = (manager: TransactionManagerMock) => Promise<unknown>;
 
-describe("BusinessesService", () => {
+describe('BusinessesService', () => {
   let service: BusinessesService;
-  let businessRepo: jest.Mocked<Pick<Repository<Business>, "findOne" | "createQueryBuilder">>;
+  let businessRepo: jest.Mocked<
+    Pick<Repository<Business>, 'findOne' | 'createQueryBuilder'>
+  >;
   let listQueryBuilder: {
     andWhere: jest.Mock;
     orderBy: jest.Mock;
@@ -26,12 +38,31 @@ describe("BusinessesService", () => {
     getManyAndCount: jest.Mock;
   };
   let dataSource: {
-    transaction: jest.MockedFunction<(handler: TransactionHandler) => Promise<unknown>>;
+    transaction: jest.MockedFunction<
+      (handler: TransactionHandler) => Promise<unknown>
+    >;
     createQueryBuilder: jest.Mock;
   };
-  let riskService: jest.Mocked<Pick<BusinessRiskService, "refreshBusinessRiskScore">>;
-  let identifierValidationService: jest.Mocked<Pick<BusinessIdentifierValidationService, "validate">>;
-  let notifier: jest.Mocked<Pick<BusinessStatusNotifierService, "notifyStatusChanged">>;
+  let riskService: jest.Mocked<
+    Pick<
+      BusinessRiskService,
+      'refreshBusinessRiskScore' | 'calculateAssessment'
+    >
+  >;
+  let referenceDataService: jest.Mocked<
+    Pick<
+      BusinessReferenceDataService,
+      | 'assertActiveCountry'
+      | 'assertSupportedBusinessProfile'
+      | 'getReferenceData'
+    >
+  >;
+  let identifierValidationService: jest.Mocked<
+    Pick<BusinessIdentifierValidationService, 'validate'>
+  >;
+  let notifier: jest.Mocked<
+    Pick<BusinessStatusNotifierService, 'notifyStatusChanged'>
+  >;
 
   beforeEach(() => {
     listQueryBuilder = {
@@ -46,11 +77,31 @@ describe("BusinessesService", () => {
       createQueryBuilder: jest.fn().mockReturnValue(listQueryBuilder),
     };
     dataSource = {
-      transaction: jest.fn() as jest.MockedFunction<(handler: TransactionHandler) => Promise<unknown>>,
+      transaction: jest.fn() as jest.MockedFunction<
+        (handler: TransactionHandler) => Promise<unknown>
+      >,
       createQueryBuilder: jest.fn(),
     };
     riskService = {
       refreshBusinessRiskScore: jest.fn(),
+      calculateAssessment: jest.fn(),
+    };
+    referenceDataService = {
+      assertActiveCountry: jest.fn().mockResolvedValue({
+        code: 'AR',
+        name: 'Argentina',
+      }),
+      assertSupportedBusinessProfile: jest.fn().mockResolvedValue({
+        country: {
+          code: 'AR',
+          name: 'Argentina',
+        },
+        industry: {
+          key: 'technology',
+          label: 'Technology',
+        },
+      }),
+      getReferenceData: jest.fn(),
     };
     identifierValidationService = {
       validate: jest.fn(),
@@ -62,21 +113,22 @@ describe("BusinessesService", () => {
     service = new BusinessesService(
       businessRepo as unknown as Repository<Business>,
       dataSource as unknown as DataSource,
+      referenceDataService as unknown as BusinessReferenceDataService,
       riskService as unknown as BusinessRiskService,
       identifierValidationService as unknown as BusinessIdentifierValidationService,
       notifier as unknown as BusinessStatusNotifierService,
     );
   });
 
-  it("creates a business, records initial history, and refreshes the risk score", async () => {
+  it('creates a business, records initial history, and refreshes the risk score', async () => {
     const dto: CreateBusinessDto = {
-      name: "Acme Corp",
-      taxIdentifier: "20-12345678-9",
-      country: "AR",
-      industry: "technology",
+      name: 'Acme Corp',
+      taxIdentifier: '20-12345678-9',
+      country: 'AR',
+      industry: 'technology',
     };
     const savedBusiness = {
-      id: "business-1",
+      id: 'business-1',
       ...dto,
       identifierValidated: true,
       status: BusinessStatus.PENDING,
@@ -93,23 +145,33 @@ describe("BusinessesService", () => {
     businessRepo.findOne.mockResolvedValue(null);
     identifierValidationService.validate.mockResolvedValue({
       valid: true,
-      country: "AR",
-      format: "11 digits (for example 20-12345678-6)",
+      country: 'AR',
+      format: '11 digits (for example 20-12345678-6)',
     });
     dataSource.transaction.mockImplementation((handler) =>
       handler({
         getRepository: (entity: unknown) =>
-          entity === Business ? transactionBusinessRepo : transactionStatusHistoryRepo,
+          entity === Business
+            ? transactionBusinessRepo
+            : transactionStatusHistoryRepo,
       }),
     );
-    jest.spyOn(service, "findOne").mockResolvedValue(savedBusiness);
+    jest.spyOn(service, 'findOne').mockResolvedValue(savedBusiness);
 
-    await expect(service.create(dto, "user-1")).resolves.toBe(savedBusiness);
+    await expect(service.create(dto, 'user-1')).resolves.toBe(savedBusiness);
 
-    expect(identifierValidationService.validate).toHaveBeenCalledWith(dto.taxIdentifier, dto.country);
+    expect(
+      referenceDataService.assertSupportedBusinessProfile,
+    ).toHaveBeenCalledWith(dto.country, dto.industry);
+    expect(identifierValidationService.validate).toHaveBeenCalledWith(
+      dto.taxIdentifier,
+      'AR',
+    );
     expect(transactionBusinessRepo.create).toHaveBeenCalledWith({
       ...dto,
-      createdById: "user-1",
+      country: 'AR',
+      industry: 'technology',
+      createdById: 'user-1',
       identifierValidated: true,
       status: BusinessStatus.PENDING,
     });
@@ -117,74 +179,82 @@ describe("BusinessesService", () => {
       businessId: savedBusiness.id,
       previousStatus: null,
       newStatus: BusinessStatus.PENDING,
-      reason: "Business created",
-      changedById: "user-1",
+      reason: 'Business created',
+      changedById: 'user-1',
     });
-    expect(riskService.refreshBusinessRiskScore).toHaveBeenCalledWith(savedBusiness.id);
+    expect(riskService.refreshBusinessRiskScore).toHaveBeenCalledWith(
+      savedBusiness.id,
+    );
   });
 
-  it("rejects duplicate tax identifiers before creating a business", async () => {
+  it('rejects duplicate tax identifiers before creating a business', async () => {
     businessRepo.findOne.mockResolvedValue({
-      id: "existing-business",
+      id: 'existing-business',
     } as Business);
 
     await expect(
       service.create(
         {
-          name: "Acme Corp",
-          taxIdentifier: "20-12345678-9",
-          country: "AR",
-          industry: "technology",
+          name: 'Acme Corp',
+          taxIdentifier: '20-12345678-9',
+          country: 'AR',
+          industry: 'technology',
         },
-        "user-1",
+        'user-1',
       ),
     ).rejects.toBeInstanceOf(ConflictException);
 
+    expect(
+      referenceDataService.assertSupportedBusinessProfile,
+    ).toHaveBeenCalledWith('AR', 'technology');
     expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
-  it("rejects creation when the tax identifier is invalid for the country", async () => {
+  it('rejects creation when the tax identifier is invalid for the country', async () => {
     const dto: CreateBusinessDto = {
-      name: "Acme Corp",
-      taxIdentifier: "invalid-id",
-      country: "AR",
-      industry: "technology",
+      name: 'Acme Corp',
+      taxIdentifier: 'invalid-id',
+      country: 'AR',
+      industry: 'technology',
     };
 
     businessRepo.findOne.mockResolvedValue(null);
     identifierValidationService.validate.mockResolvedValue({
       valid: false,
-      country: "AR",
-      format: "11 digits (for example 20-12345678-6)",
-      failureReason: "invalid_format",
+      country: 'AR',
+      format: '11 digits (for example 20-12345678-6)',
+      failureReason: 'invalid_format',
     });
 
-    await expect(service.create(dto, "user-1")).rejects.toThrow(
+    await expect(service.create(dto, 'user-1')).rejects.toThrow(
       'Tax identifier "invalid-id" is not a valid Argentina tax ID. Expected format: 11 digits (for example 20-12345678-6).',
     );
 
-    expect(identifierValidationService.validate).toHaveBeenCalledWith(dto.taxIdentifier, dto.country);
+    expect(identifierValidationService.validate).toHaveBeenCalledWith(
+      dto.taxIdentifier,
+      'AR',
+    );
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(riskService.refreshBusinessRiskScore).not.toHaveBeenCalled();
   });
 
-  it("explains when a tax identifier has the right format but fails the verification digit", async () => {
+  it('explains when a tax identifier has the right format but fails the verification digit', async () => {
     const dto: CreateBusinessDto = {
-      name: "Acme Corp",
-      taxIdentifier: "30-42878049-2",
-      country: "AR",
-      industry: "technology",
+      name: 'Acme Corp',
+      taxIdentifier: '30-42878049-2',
+      country: 'AR',
+      industry: 'technology',
     };
 
     businessRepo.findOne.mockResolvedValue(null);
     identifierValidationService.validate.mockResolvedValue({
       valid: false,
-      country: "AR",
-      format: "11 digits (for example 20-12345678-6)",
-      failureReason: "invalid_checksum",
+      country: 'AR',
+      format: '11 digits (for example 20-12345678-6)',
+      failureReason: 'invalid_checksum',
     });
 
-    await expect(service.create(dto, "user-1")).rejects.toThrow(
+    await expect(service.create(dto, 'user-1')).rejects.toThrow(
       'Tax identifier "30-42878049-2" is not a valid Argentina tax ID. Expected format: 11 digits (for example 20-12345678-6).',
     );
 
@@ -192,12 +262,12 @@ describe("BusinessesService", () => {
     expect(riskService.refreshBusinessRiskScore).not.toHaveBeenCalled();
   });
 
-  it("searches by company name, business id, and tax identifier", async () => {
+  it('searches by company name, business id, and tax identifier', async () => {
     listQueryBuilder.getManyAndCount.mockResolvedValue([[], 0]);
 
     await expect(
       service.findAll({
-        search: "20-12345678",
+        search: '20-12345678',
         page: 1,
         limit: 10,
       }),
@@ -209,21 +279,43 @@ describe("BusinessesService", () => {
       totalPages: 0,
     });
 
-    expect(businessRepo.createQueryBuilder).toHaveBeenCalledWith("b");
+    expect(businessRepo.createQueryBuilder).toHaveBeenCalledWith('b');
     expect(listQueryBuilder.andWhere).toHaveBeenCalledWith(
       "(b.name ILIKE :search OR CAST(b.id AS text) ILIKE :search OR b.tax_identifier ILIKE :search OR REPLACE(REPLACE(REPLACE(b.tax_identifier, '-', ''), '.', ''), '/', '') ILIKE :normalizedSearch)",
       {
-        search: "%20-12345678%",
-        normalizedSearch: "%2012345678%",
+        search: '%20-12345678%',
+        normalizedSearch: '%2012345678%',
       },
     );
   });
 
-  it("updates status inside a transaction and emits a structured notification", async () => {
+  it('surfaces microservice outages as service-unavailable instead of invalid data', async () => {
+    businessRepo.findOne.mockResolvedValue(null);
+    identifierValidationService.validate.mockRejectedValue(
+      new ServiceUnavailableException('temporary outage'),
+    );
+
+    await expect(
+      service.create(
+        {
+          name: 'Acme Corp',
+          taxIdentifier: '20-12345678-9',
+          country: 'AR',
+          industry: 'technology',
+        },
+        'user-1',
+      ),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(riskService.refreshBusinessRiskScore).not.toHaveBeenCalled();
+  });
+
+  it('updates status inside a transaction and emits a structured notification', async () => {
     const currentBusiness = {
-      id: "business-1",
-      name: "Acme Corp",
-      status: BusinessStatus.PENDING,
+      id: 'business-1',
+      name: 'Acme Corp',
+      status: BusinessStatus.IN_REVIEW,
     } as Business;
     const updatedBusiness = {
       ...currentBusiness,
@@ -231,7 +323,7 @@ describe("BusinessesService", () => {
     } as Business;
     const dto: UpdateStatusDto = {
       status: BusinessStatus.APPROVED,
-      reason: "All checks passed",
+      reason: 'All checks passed',
     };
 
     const transactionBusinessRepo = {
@@ -242,55 +334,181 @@ describe("BusinessesService", () => {
     };
 
     jest
-      .spyOn(service, "findOne")
+      .spyOn(service, 'findOne')
       .mockResolvedValueOnce(currentBusiness)
       .mockResolvedValueOnce(updatedBusiness);
     dataSource.transaction.mockImplementation((handler) =>
       handler({
         getRepository: (entity: unknown) =>
-          entity === Business ? transactionBusinessRepo : transactionStatusHistoryRepo,
+          entity === Business
+            ? transactionBusinessRepo
+            : transactionStatusHistoryRepo,
       }),
     );
 
-    await expect(service.updateStatus(currentBusiness.id, dto, "admin-1")).resolves.toBe(updatedBusiness);
+    await expect(
+      service.updateStatus(currentBusiness.id, dto, 'admin-1'),
+    ).resolves.toBe(updatedBusiness);
 
-    expect(transactionBusinessRepo.update).toHaveBeenCalledWith(currentBusiness.id, {
-      status: BusinessStatus.APPROVED,
-    });
+    expect(transactionBusinessRepo.update).toHaveBeenCalledWith(
+      currentBusiness.id,
+      {
+        status: BusinessStatus.APPROVED,
+      },
+    );
     expect(transactionStatusHistoryRepo.save).toHaveBeenCalledWith({
       businessId: currentBusiness.id,
-      previousStatus: BusinessStatus.PENDING,
+      previousStatus: BusinessStatus.IN_REVIEW,
       newStatus: BusinessStatus.APPROVED,
-      reason: "All checks passed",
-      changedById: "admin-1",
+      reason: 'All checks passed',
+      changedById: 'admin-1',
     });
     expect(notifier.notifyStatusChanged).toHaveBeenCalledWith({
       businessId: currentBusiness.id,
       businessName: currentBusiness.name,
-      previousStatus: BusinessStatus.PENDING,
+      previousStatus: BusinessStatus.IN_REVIEW,
       newStatus: BusinessStatus.APPROVED,
-      changedById: "admin-1",
+      changedById: 'admin-1',
     });
   });
 
-  it("rejects repeated status updates", async () => {
-    jest.spyOn(service, "findOne").mockResolvedValue({
-      id: "business-1",
-      name: "Acme Corp",
+  it('rejects repeated status updates', async () => {
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'business-1',
+      name: 'Acme Corp',
       status: BusinessStatus.PENDING,
     } as Business);
 
     await expect(
-      service.updateStatus("business-1", { status: BusinessStatus.PENDING }, "admin-1"),
+      service.updateStatus(
+        'business-1',
+        {
+          status: BusinessStatus.PENDING,
+          reason: 'Attempted duplicate update for testing',
+        },
+        'admin-1',
+      ),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(notifier.notifyStatusChanged).not.toHaveBeenCalled();
   });
 
-  it("getStats aggregates counts, average approval time, and compliance rate", async () => {
-    const countQb = { getCount: jest.fn().mockResolvedValue(25) };
+  it('rejects status transitions that skip the compliance workflow', async () => {
+    jest.spyOn(service, 'findOne').mockResolvedValue({
+      id: 'business-1',
+      name: 'Acme Corp',
+      status: BusinessStatus.PENDING,
+    } as Business);
+
+    await expect(
+      service.updateStatus(
+        'business-1',
+        {
+          status: BusinessStatus.APPROVED,
+          reason: 'Attempted shortcut',
+        },
+        'admin-1',
+      ),
+    ).rejects.toThrow(
+      'Cannot move this business from "Pending" to "Approved". Allowed next statuses: "In Review", "Rejected".',
+    );
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(notifier.notifyStatusChanged).not.toHaveBeenCalled();
+  });
+
+  it('soft deletes a business and records the deletion audit fields', async () => {
+    businessRepo.findOne.mockResolvedValue({
+      id: 'business-1',
+      name: 'Acme Corp',
+      deletedAt: null,
+    } as Business);
+
+    const transactionBusinessRepo = {
+      update: jest.fn().mockResolvedValue(undefined),
+      softDelete: jest.fn().mockResolvedValue(undefined),
+    };
+
+    dataSource.transaction.mockImplementation((handler) =>
+      handler({
+        getRepository: () => transactionBusinessRepo,
+      }),
+    );
+
+    await expect(
+      service.remove(
+        'business-1',
+        {
+          reason: 'Duplicate case created during QA. Archived instead of hard deleting.',
+        },
+        'admin-1',
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(businessRepo.findOne).toHaveBeenCalledWith({
+      where: { id: 'business-1' },
+      withDeleted: true,
+    });
+    expect(transactionBusinessRepo.update).toHaveBeenCalledWith('business-1', {
+      deletionReason:
+        'Duplicate case created during QA. Archived instead of hard deleting.',
+      deletedById: 'admin-1',
+    });
+    expect(transactionBusinessRepo.softDelete).toHaveBeenCalledWith(
+      'business-1',
+    );
+  });
+
+  it('returns a risk preview using the centralized policy', async () => {
+    const assessment: BusinessRiskAssessment = {
+      score: 20,
+      requiresManualReview: false,
+      breakdown: {
+        countryRisk: 0,
+        industryRisk: 0,
+        documentationRisk: 20,
+        missingDocumentTypes: [],
+      },
+    };
+    riskService.calculateAssessment.mockResolvedValue(assessment);
+
+    const dto: PreviewRiskDto = {
+      country: 'AR',
+      industry: 'technology',
+      documentTypes: [],
+    };
+
+    await expect(service.previewRiskScore(dto)).resolves.toEqual(assessment);
+    expect(
+      referenceDataService.assertSupportedBusinessProfile,
+    ).toHaveBeenCalledWith(dto.country, dto.industry);
+    expect(riskService.calculateAssessment).toHaveBeenCalledWith(dto);
+  });
+
+  it('returns backend-owned compliance reference data', async () => {
+    const referenceData: BusinessReferenceData = {
+      countries: [{ code: 'AR', name: 'Argentina', riskPoints: 0 }],
+      industries: [{ key: 'technology', label: 'Technology', riskPoints: 0 }],
+      riskSettings: {
+        documentationRiskPoints: 20,
+        manualReviewThreshold: 70,
+      },
+      requiredDocumentTypes: [],
+    };
+    referenceDataService.getReferenceData.mockResolvedValue(referenceData);
+
+    await expect(service.getReferenceData()).resolves.toEqual(referenceData);
+    expect(referenceDataService.getReferenceData).toHaveBeenCalled();
+  });
+
+  it('getStats aggregates counts, average approval time, and compliance rate', async () => {
+    const countQb = {
+      where: jest.fn().mockReturnThis(),
+      getCount: jest.fn().mockResolvedValue(25),
+    };
     const statusQb = {
+      where: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
       addSelect: jest.fn().mockReturnThis(),
       groupBy: jest.fn().mockReturnThis(),
@@ -306,10 +524,13 @@ describe("BusinessesService", () => {
       from: jest.fn().mockReturnThis(),
       innerJoin: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
-      getRawOne: jest.fn().mockResolvedValue({ days: "3.24567" }),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ days: '3.24567' }),
     };
 
-    businessRepo.createQueryBuilder.mockReturnValueOnce(countQb).mockReturnValueOnce(statusQb);
+    businessRepo.createQueryBuilder
+      .mockReturnValueOnce(countQb)
+      .mockReturnValueOnce(statusQb);
     dataSource.createQueryBuilder.mockReturnValue(avgQb);
 
     const result = await service.getStats();

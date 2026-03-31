@@ -10,10 +10,10 @@ import {
   Settings,
   HelpCircle,
   LogOut,
-  Shield,
   Search,
   Bell,
 } from "lucide-react";
+import { BrandLogo } from "@/components/brand-logo";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -32,6 +32,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { AuthProvider, useAuth } from "@/lib/auth";
+import { NotificationProvider, useNotifications } from "@/lib/notifications";
 
 const navItems = [
   { label: "Companies", href: "/", icon: Building2 },
@@ -51,14 +52,12 @@ function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="p-4">
-        <Link href="/" className="flex items-center gap-2">
-          <Shield className="size-5 shrink-0 text-sidebar-primary" />
-          <div className="group-data-[collapsible=icon]:hidden">
-            <p className="font-display text-sm font-bold tracking-tight text-sidebar-primary">
-              Complif HQ
-            </p>
-            <p className="text-xs text-muted-foreground">Compliance Ledger</p>
-          </div>
+        <Link href="/" aria-label="Complif home" className="flex items-center">
+          <BrandLogo
+            variant="mark"
+            className="hidden size-7 text-sidebar-foreground group-data-[collapsible=icon]:block"
+          />
+          <BrandLogo className="h-7 text-sidebar-foreground group-data-[collapsible=icon]:hidden" />
         </Link>
       </SidebarHeader>
 
@@ -111,18 +110,18 @@ function AppSidebar() {
 
 function Topbar() {
   const { user } = useAuth();
+  const { unreadCount } = useNotifications();
   const initials = user
     ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase()
     : "?";
 
   return (
-    <header className="flex h-14 items-center gap-3 border-b border-sidebar-border bg-card px-4">
+    <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b border-sidebar-border bg-card px-4">
       <SidebarTrigger />
 
-      <div className="flex items-center gap-2">
-        <Shield className="size-4 text-primary" />
-        <span className="font-display text-sm font-semibold">Complif</span>
-      </div>
+      <Link href="/" aria-label="Complif home">
+        <BrandLogo className="h-5 text-foreground" />
+      </Link>
 
       <div className="ml-auto flex items-center gap-2">
         <div className="relative w-52">
@@ -132,9 +131,14 @@ function Topbar() {
 
         <Link
           href="/notifications"
-          className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <Bell className="size-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
         </Link>
         <button className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground">
           <HelpCircle className="size-4" />
@@ -169,13 +173,15 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        <Topbar />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
-      </SidebarInset>
-    </SidebarProvider>
+    <NotificationProvider>
+      <SidebarProvider className="h-svh overflow-hidden">
+        <AppSidebar />
+        <SidebarInset className="min-h-0 overflow-hidden">
+          <Topbar />
+          <main className="min-h-0 flex-1 overflow-y-auto p-6">{children}</main>
+        </SidebarInset>
+      </SidebarProvider>
+    </NotificationProvider>
   );
 }
 

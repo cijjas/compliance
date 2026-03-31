@@ -1,3 +1,5 @@
+import { HttpService } from '@nestjs/axios';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { of, throwError } from 'rxjs';
 import { ConfigService } from '@nestjs/config';
 import { BusinessIdentifierValidationService } from './business-identifier-validation.service';
@@ -12,7 +14,7 @@ describe('BusinessIdentifierValidationService', () => {
     configService = { get: jest.fn().mockReturnValue('http://localhost:3001') };
 
     service = new BusinessIdentifierValidationService(
-      httpService as any,
+      httpService as unknown as HttpService,
       configService as unknown as ConfigService,
     );
   });
@@ -62,19 +64,14 @@ describe('BusinessIdentifierValidationService', () => {
     });
   });
 
-  it('gracefully degrades when the microservice is unavailable', async () => {
+  it('raises a service-unavailable error when the microservice is unavailable', async () => {
     httpService.post.mockReturnValue(
       throwError(() => new Error('ECONNREFUSED')),
     );
 
-    const result = await service.validate('20-12345678-9', 'AR');
-
-    expect(result).toEqual({
-      valid: false,
-      country: 'AR',
-      format: null,
-      failureReason: undefined,
-    });
+    await expect(
+      service.validate('20-12345678-9', 'AR'),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('defaults country and format from the microservice response', async () => {

@@ -1,16 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
-  Circle,
   Eye,
+  FileWarning,
   Info,
   Plus,
   Upload,
   X,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,29 +27,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { toast } from "sonner";
+import { CountryLabel } from "@/components/country-flag";
+import { RiskAnalysis } from "@/components/risk-analysis";
 import { api, ApiError } from "@/lib/api";
+import {
+  buildCountryLabelMap,
+  buildIndustryLabelMap,
+  useBusinessReferenceData,
+} from "@/lib/reference-data";
 import { DocumentType } from "@/lib/types";
-import type { Business } from "@/lib/types";
-import { COUNTRY_OPTIONS } from "@/lib/constants";
-
-const INDUSTRY_OPTIONS = [
-  "technology",
-  "finance",
-  "healthcare",
-  "construction",
-  "security",
-  "currency_exchange",
-  "casino",
-  "manufacturing",
-  "retail",
-  "legal_services",
-  "consulting",
-  "education",
-  "real_estate",
-  "transportation",
-  "agriculture",
-  "energy",
-];
+import type { Business, BusinessRiskAssessment } from "@/lib/types";
 
 const DOC_TYPES: {
   type: DocumentType;
@@ -57,7 +46,7 @@ const DOC_TYPES: {
 }[] = [
   {
     type: DocumentType.FISCAL_CERTIFICATE,
-    label: "Tax Certificate (Monotributo/IVA)",
+    label: "Tax Certificate",
     description: "Proof of tax status from national authority.",
   },
   {
@@ -67,10 +56,16 @@ const DOC_TYPES: {
   },
   {
     type: DocumentType.INSURANCE_POLICY,
-    label: "Insurance Policy (ART/Life)",
+    label: "Insurance Policy",
     description: "Valid liability or worker insurance coverage.",
   },
 ];
+
+function formatIndustry(value: string) {
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 type Step = "entity" | "documents" | "review";
 const STEPS: { key: Step; label: string }[] = [
@@ -81,27 +76,34 @@ const STEPS: { key: Step; label: string }[] = [
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { referenceData, loading: referenceDataLoading, error: referenceDataError } =
+    useBusinessReferenceData();
   const [step, setStep] = useState<Step>("entity");
   const [submitting, setSubmitting] = useState(false);
-  const [advancing, setAdvancing] = useState(false);
   const [error, setError] = useState("");
-
   // Entity data
   const [name, setName] = useState("");
   const [taxIdentifier, setTaxIdentifier] = useState("");
   const [country, setCountry] = useState("");
   const [industry, setIndustry] = useState("");
 
-  // Created business (persisted after entity step)
-  const [business, setBusiness] = useState<Business | null>(null);
-
   // Documents
   const [files, setFiles] = useState<Partial<Record<DocumentType, File>>>({});
   const [previews, setPreviews] = useState<Partial<Record<DocumentType, string>>>({});
   const [previewDocType, setPreviewDocType] = useState<DocumentType | null>(null);
   const [dragTarget, setDragTarget] = useState<DocumentType | null>(null);
+  const [previewAssessment, setPreviewAssessment] =
+    useState<BusinessRiskAssessment | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const stepIndex = STEPS.findIndex((s) => s.key === step);
+  const missingDocuments = DOC_TYPES.filter(({ type }) => !files[type]);
+  const attachedDocumentTypes = DOC_TYPES.filter(({ type }) => !!files[type]).map(
+    ({ type }) => type,
+  );
+  const countryLabels = buildCountryLabelMap(referenceData);
+  const industryLabels = buildIndustryLabelMap(referenceData);
 
   function addFile(type: DocumentType, file: File) {
     const url = URL.createObjectURL(file);
@@ -132,59 +134,149 @@ export default function RegisterPage() {
   }
 
   async function handleContinue() {
-    const nextStep = STEPS[stepIndex + 1].key;
-
-    // On entity step, create the business first to catch validation errors early
-    if (step === "entity" && !business) {
+    if (step === "entity") {
       setError("");
-      setAdvancing(true);
       try {
-        const created = await api.post<Business>("/businesses", {
-          name,
-          taxIdentifier,
-          country,
-          industry,
-        });
-        setBusiness(created);
-        setStep(nextStep);
-      } catch (err) {
-        setError(
-          err instanceof ApiError ? err.message : "Something went wrong.",
+        const check = await api.get<{ available: boolean; valid: boolean; message?: string }>(
+          `/businesses/check-tax-id?taxIdentifier=${encodeURIComponent(taxIdentifier)}&country=${encodeURIComponent(country)}`
         );
-      } finally {
-        setAdvancing(false);
+        if (!check.available || !check.valid) {
+          setError(check.message ?? "Tax identifier is not valid.");
+          return;
+        }
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Could not validate tax identifier.");
+        return;
       }
-      return;
     }
-
+    const nextStep = STEPS[stepIndex + 1].key;
     setStep(nextStep);
+    if (nextStep === "review") {
+      void loadRiskPreview();
+    }
   }
 
   async function handleSubmit() {
-    if (!business) return;
+    if (!name || !taxIdentifier || !country || !industry) return;
     setError("");
     setSubmitting(true);
 
     try {
-      for (const [docType, file] of Object.entries(files)) {
+      const created = await api.post<Business>("/businesses", {
+        name,
+        taxIdentifier,
+        country,
+        industry,
+      });
+
+      const failedUploads: string[] = [];
+
+      for (const { type, label } of DOC_TYPES) {
+        const file = files[type];
         if (!file) continue;
+
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("type", docType);
-        await api.upload(
-          `/businesses/${business.id}/documents`,
-          formData,
-        );
+        formData.append("type", type);
+
+        try {
+          await api.upload(
+            `/businesses/${created.id}/documents`,
+            formData,
+          );
+        } catch {
+          failedUploads.push(label);
+        }
       }
 
-      router.push(`/companies/${business.id}`);
+      if (failedUploads.length > 0) {
+        toast.warning("Company created with pending document uploads", {
+          description: `Finish uploading ${failedUploads.join(", ")} from the company page.`,
+        });
+      } else {
+        toast.success("Company registered");
+      }
+
+      router.push(`/companies/${created.id}`);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
       setSubmitting(false);
     }
   }
 
+  async function loadRiskPreview() {
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewAssessment(null);
+
+    try {
+      const assessment = await api.post<BusinessRiskAssessment>(
+        "/businesses/risk-preview",
+        {
+        country,
+        industry,
+        documentTypes: attachedDocumentTypes,
+        },
+      );
+      setPreviewAssessment(assessment);
+    } catch (err) {
+      setPreviewError(
+        err instanceof ApiError ? err.message : "Risk preview unavailable.",
+      );
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
   const previewUrl = previewDocType ? previews[previewDocType] : null;
+  const packageState = previewAssessment
+    ? getPackageState({
+        missingDocumentCount: missingDocuments.length,
+        requiresManualReview: previewAssessment.requiresManualReview,
+        riskScore: previewAssessment.score,
+      })
+    : previewLoading
+      ? {
+          label: "Assessing Risk",
+          description:
+            "Generating the server-side compliance preview for this company package.",
+          variant: "secondary" as const,
+        }
+      : {
+          label: "Preview Pending",
+          description:
+            previewError ??
+            "The backend preview will appear here before you submit the company.",
+          variant: "secondary" as const,
+        };
+  const riskDrivers = previewAssessment
+    ? [
+        {
+          label: "Jurisdiction",
+          points: previewAssessment.breakdown.countryRisk,
+          description:
+            previewAssessment.breakdown.countryRisk > 0
+              ? `${countryLabels[country] ?? country} is flagged as a higher-risk jurisdiction.`
+              : `${countryLabels[country] ?? country} adds no jurisdiction penalty.`,
+        },
+        {
+          label: "Industry",
+          points: previewAssessment.breakdown.industryRisk,
+          description:
+            previewAssessment.breakdown.industryRisk > 0
+              ? `${industryLabels[industry] ?? formatIndustry(industry)} is in the elevated-risk sector list.`
+              : `${industryLabels[industry] ?? formatIndustry(industry)} does not add sector risk.`,
+        },
+        {
+          label: "Document Coverage",
+          points: previewAssessment.breakdown.documentationRisk,
+          description:
+            previewAssessment.breakdown.documentationRisk > 0
+              ? `Missing ${missingDocuments.map((document) => document.label).join(", ")}.`
+              : "All required PDFs are attached for submission.",
+        },
+      ]
+    : [];
 
   return (
     <div className="grid grid-cols-4 gap-8">
@@ -244,9 +336,9 @@ export default function RegisterPage() {
 
       {/* Right — form content */}
       <div className="col-span-3 space-y-6">
-        {error && (
+        {(error || referenceDataError) && (
           <div className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {error}
+            {error || referenceDataError}
           </div>
         )}
 
@@ -274,10 +366,10 @@ export default function RegisterPage() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-semibold tracking-widest uppercase">
-                    CUIT / Tax ID Number
+                    Tax ID
                   </label>
                   <Input
-                    placeholder="30-12345678-9"
+                    placeholder="Enter the company tax ID"
                     value={taxIdentifier}
                     onChange={(e) => setTaxIdentifier(e.target.value)}
                   />
@@ -287,13 +379,25 @@ export default function RegisterPage() {
                     Jurisdiction / Country
                   </label>
                   <Select value={country} onValueChange={setCountry}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select country" />
+                    <SelectTrigger disabled={referenceDataLoading}>
+                      {country ? (
+                        <SelectValue>
+                          <CountryLabel
+                            code={country}
+                            label={countryLabels[country] ?? country}
+                          />
+                        </SelectValue>
+                      ) : (
+                        <SelectValue placeholder="Select country" />
+                      )}
                     </SelectTrigger>
                     <SelectContent>
-                      {COUNTRY_OPTIONS.map((c) => (
-                        <SelectItem key={c.value} value={c.value}>
-                          {c.label}
+                      {(referenceData?.countries ?? []).map((countryOption) => (
+                        <SelectItem key={countryOption.code} value={countryOption.code}>
+                          <CountryLabel
+                            code={countryOption.code}
+                            label={countryOption.name}
+                          />
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -304,13 +408,13 @@ export default function RegisterPage() {
                     Industry Vertical
                   </label>
                   <Select value={industry} onValueChange={setIndustry}>
-                    <SelectTrigger>
+                    <SelectTrigger disabled={referenceDataLoading}>
                       <SelectValue placeholder="Select industry" />
                     </SelectTrigger>
                     <SelectContent>
-                      {INDUSTRY_OPTIONS.map((ind) => (
-                        <SelectItem key={ind} value={ind}>
-                          {ind.replace(/_/g, " ")}
+                      {(referenceData?.industries ?? []).map((industryOption) => (
+                        <SelectItem key={industryOption.key} value={industryOption.key}>
+                          {industryOption.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -455,7 +559,7 @@ export default function RegisterPage() {
                         <p className="mt-5 text-sm font-semibold text-foreground">
                           {label}
                         </p>
-                        <p className="mt-2 max-w-[15rem] text-sm text-muted-foreground">
+                        <p className="mt-2 max-w-60 text-sm text-muted-foreground">
                           {description}
                         </p>
 
@@ -487,57 +591,115 @@ export default function RegisterPage() {
           </div>
         )}
 
+
         {step === "review" && (
-          <Card>
-            <CardContent className="p-8">
-              <h2 className="font-display text-xl font-bold tracking-tight">
-                Review & Submit
-              </h2>
-              <p className="mt-1 mb-6 text-sm text-muted-foreground">
-                Confirm all details before submitting for verification.
-              </p>
+          <div className="space-y-6">
+            {/* ── Header ── */}
+            <Card>
+              <CardContent className="flex items-center justify-between p-6">
+                <div>
+                  <h2 className="font-display text-2xl font-semibold tracking-tight">
+                    Confirm &amp; Submit
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Review the details below before submitting for compliance review.
+                  </p>
+                  {packageState.description ? (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {packageState.description}
+                    </p>
+                  ) : null}
+                </div>
+                <Badge variant={packageState.variant} className="px-4 py-1.5 text-xs">
+                  {packageState.label}
+                </Badge>
+              </CardContent>
+            </Card>
 
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <ReviewItem label="Company Name" value={name} />
-                <ReviewItem label="Tax Identifier" value={taxIdentifier} />
-                <ReviewItem
-                  label="Country"
-                  value={
-                    COUNTRY_OPTIONS.find((c) => c.value === country)?.label ??
-                    country
-                  }
-                />
-                <ReviewItem
-                  label="Industry"
-                  value={industry.replace(/_/g, " ")}
-                />
+            {/* ── Two-column body ── */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              {/* Left: Entity + Documents */}
+              <div className="flex flex-col gap-6">
+                <Card>
+                  <CardContent className="p-6">
+                    <h2 className="font-display text-lg font-bold tracking-tight mb-6">
+                      Company Details
+                    </h2>
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+                      <ReviewField label="Legal Name" value={name} />
+                      <ReviewField label="Tax Identifier" value={taxIdentifier} />
+                      <ReviewField
+                        label="Country / Jurisdiction"
+                        value={
+                          <CountryLabel
+                            code={country}
+                            label={countryLabels[country] ?? country}
+                          />
+                        }
+                      />
+                      <ReviewField
+                        label="Industry"
+                        value={industryLabels[industry] ?? formatIndustry(industry)}
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <h2 className="font-display text-lg font-bold tracking-tight mb-4">
+                      Attached Documentation
+                    </h2>
+                    <div className="flex flex-col">
+                      {DOC_TYPES.map(({ type, label }) => {
+                        const attached = !!files[type];
+                        return (
+                          <div key={type} className="flex items-center gap-4 py-4 border-b border-border/40 last:border-0">
+                            <div className={`flex shrink-0 size-10 items-center justify-center rounded-full ${attached ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                              {attached ? <CheckCircle2 className="size-5" /> : <FileWarning className="size-5" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-foreground">{label}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {attached ? "Uploaded successfully." : "Required for evaluation."}
+                              </p>
+                            </div>
+                            <div className="shrink-0">
+                              {attached ? (
+                                <Badge variant="success" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50 border-0">Complete</Badge>
+                              ) : (
+                                <Badge variant="warning" className="bg-amber-50 text-amber-700 hover:bg-amber-50 border-0">Missing</Badge>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
 
-              <h3 className="text-xs font-semibold tracking-widest uppercase text-muted-foreground mb-3">
-                Documents
-              </h3>
-              <div className="space-y-2">
-                {DOC_TYPES.map(({ type, label }) => (
-                  <div
-                    key={type}
-                    className="flex items-center gap-2 text-sm"
-                  >
-                    {files[type] ? (
-                      <CheckCircle2 className="size-4 text-primary" />
-                    ) : (
-                      <Circle className="size-4 text-muted-foreground" />
-                    )}
-                    <span>{label}</span>
-                    {files[type] && (
-                      <span className="text-xs text-muted-foreground">
-                        ({files[type].name})
-                      </span>
-                    )}
-                  </div>
-                ))}
+              {/* Right: Risk Assessment */}
+              <div>
+                {previewAssessment ? (
+                  <RiskAnalysis score={previewAssessment.score} drivers={riskDrivers} />
+                ) : (
+                  <Card>
+                    <CardContent className="p-6">
+                      <h2 className="font-display text-lg font-bold tracking-tight">
+                        Risk Analysis
+                      </h2>
+                      <p className="mt-3 text-sm text-muted-foreground">
+                        {previewLoading
+                          ? "Generating a server-side risk preview using the current jurisdiction, industry, and attached documents."
+                          : packageState.description}
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )}
 
         {/* Navigation */}
@@ -553,9 +715,9 @@ export default function RegisterPage() {
           {step !== "review" ? (
             <Button
               onClick={handleContinue}
-              disabled={!canContinue() || advancing}
+              disabled={!canContinue()}
             >
-              {advancing ? "Validating..." : `Continue to ${STEPS[stepIndex + 1].label}`}
+              Continue to {STEPS[stepIndex + 1].label}
             </Button>
           ) : (
             <Button onClick={handleSubmit} disabled={submitting}>
@@ -595,6 +757,55 @@ function formatBytes(bytes: number) {
   return `${(kb / 1024).toFixed(1)} MB`;
 }
 
+
+function getPackageState({
+  missingDocumentCount,
+  requiresManualReview,
+  riskScore,
+}: {
+  missingDocumentCount: number;
+  requiresManualReview: boolean;
+  riskScore: number;
+}): {
+  label: string;
+  description: string;
+  variant: "success" | "warning" | "destructive" | "secondary";
+} {
+  if (missingDocumentCount > 0) {
+    return {
+      label: "Documents Missing",
+      description:
+        "The company record appears valid, but the missing PDFs will keep the file incomplete until they are attached.",
+      variant: "warning",
+    };
+  }
+
+  if (requiresManualReview) {
+    return {
+      label: "Manual Review Likely",
+      description:
+        "The company appears valid, but its current risk profile is high enough that compliance will likely route it to manual review.",
+      variant: "destructive",
+    };
+  }
+
+  if (riskScore >= 25) {
+    return {
+      label: "Elevated Profile",
+      description:
+        "The package is complete, although jurisdiction or industry signals still keep it above the low-risk band.",
+      variant: "warning",
+    };
+  }
+
+  return {
+    label: "Ready to Submit",
+    description:
+      "All required inputs are present. Validation will occur upon submission.",
+    variant: "success",
+  };
+}
+
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-1">
@@ -606,13 +817,24 @@ function InfoItem({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ReviewItem({ label, value }: { label: string; value: string }) {
+
+function ReviewField({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: ReactNode;
+  valueClassName?: string;
+}) {
   return (
-    <div className="rounded-lg bg-muted p-3">
-      <p className="text-xs font-semibold tracking-widest uppercase text-muted-foreground mb-1">
+    <div className="flex flex-col gap-1.5 min-w-0">
+      <span className="text-xs text-muted-foreground font-medium">
         {label}
-      </p>
-      <p className="text-sm font-medium capitalize">{value}</p>
+      </span>
+      <span className={`text-[15px] font-semibold text-foreground truncate ${valueClassName ?? ""}`}>
+        {value}
+      </span>
     </div>
   );
 }

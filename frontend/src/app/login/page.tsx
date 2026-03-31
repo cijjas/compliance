@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Mail, Lock, ArrowRight } from "lucide-react";
+import { Mail, Lock, ArrowRight, Eye, EyeOff } from "lucide-react";
+import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
+import { persistAuthSession } from "@/lib/auth";
 import { api, ApiError } from "@/lib/api";
 import type { LoginResponse } from "@/lib/types";
 
@@ -13,6 +14,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -22,12 +24,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const res = await api.post<LoginResponse>("/auth/login", {
+      const res = await api.postPublic<LoginResponse>("/auth/login", {
         email,
         password,
       });
-      localStorage.setItem("token", res.accessToken);
-      localStorage.setItem("user", JSON.stringify(res.user));
+      persistAuthSession(res);
       router.push("/");
     } catch (err) {
       if (err instanceof ApiError) {
@@ -44,15 +45,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         <div className="mb-10">
-          <div className="flex items-center gap-2.5 mb-1">
-            <Shield className="size-7 text-primary" />
-            <h1 className="font-display text-2xl font-bold tracking-tight text-primary">
-              Complif HQ
-            </h1>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Institutional Grade Compliance Ledger
-          </p>
+          <BrandLogo className="h-10" priority />
         </div>
 
         <div className="rounded-xl bg-card p-8">
@@ -104,25 +97,29 @@ export default function LoginPage() {
               <div className="relative">
                 <Lock className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  type="password"
+                  type={showPassword ? "text" : "password"}
                   placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10"
+                  className="pl-10 pr-12"
                   required
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((current) => !current)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
+                >
+                  {showPassword ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
+                </button>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Checkbox id="remember" />
-              <label
-                htmlFor="remember"
-                className="text-sm text-muted-foreground"
-              >
-                Remember this device for 30 days
-              </label>
-            </div>
 
             <Button
               type="submit"
@@ -134,26 +131,6 @@ export default function LoginPage() {
               {!loading && <ArrowRight className="size-4" />}
             </Button>
           </form>
-        </div>
-
-        <div className="mt-8 flex flex-col items-center gap-4">
-          <div className="rounded-full bg-muted px-5 py-2">
-            <p className="text-xs font-medium tracking-wider uppercase text-muted-foreground">
-              Enterprise SSO available for verified domains
-            </p>
-          </div>
-
-          <div className="flex items-center gap-6 text-xs text-muted-foreground">
-            <span>Support</span>
-            <span>Terms</span>
-            <span>Privacy</span>
-          </div>
-
-          <div className="flex items-center gap-6 text-xs text-muted-foreground">
-            <span>SOC2 Type II</span>
-            <span>AES-256 Encrypted</span>
-            <span>ISO 27001</span>
-          </div>
         </div>
       </div>
     </div>

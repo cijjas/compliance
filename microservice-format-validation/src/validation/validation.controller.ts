@@ -15,7 +15,7 @@ export class ValidationController {
   }
 
   @Post('identifier')
-  @ApiOperation({ summary: 'Validate a fiscal identifier (CUIT/RFC/CNPJ) by country' })
+  @ApiOperation({ summary: 'Validate a company tax ID by country' })
   validateIdentifier(@Body() dto: ValidateIdentifierDto) {
     return this.validationService.validateIdentifier(dto);
   }

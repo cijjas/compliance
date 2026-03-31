@@ -1,6 +1,6 @@
 # Complif Challenge — Part 2: Desarrollo Base — Checklist Completo
 
-> Source of truth. Cada ítem sale textualmente del enunciado. Nada inventado.
+> Source of truth. Cada ítem está basado en el enunciado. Nada inventado.
 
 ---
 
@@ -30,7 +30,7 @@
 ### 1.2 Formulario de registro de empresas
 
 - [x] Campo: nombre de la empresa
-- [x] Campo: CUIT o identificador fiscal
+- [x] Campo: tax ID o identificador fiscal
 - [x] Campo: país
 - [x] Campo: industria
 - [x] Upload de documento: certificado fiscal
@@ -80,9 +80,9 @@
 - [x] Score > 70 = requiere revisión manual
 - [x] Suposiciones documentadas donde sea necesario
 
-### 2.3 Integración con servicio externo mock (validación CUIT/RFC)
+### 2.3 Integración con servicio externo mock (validación de identificadores fiscales)
 
-- [x] Microservicio NestJS separado que valida formato de CUIT/RFC (comunicación vía HTTP)
+- [x] Microservicio NestJS separado que valida formato de identificadores fiscales según país (comunicación vía HTTP)
 - [x] El backend principal llama a este microservicio
 - [x] (Es un mock — no necesita ser una API real externa)
 
@@ -147,7 +147,7 @@
 
 ## 6. REQUISITOS TÉCNICOS OBLIGATORIOS ("Debe incluir")
 
-- [x] Docker Compose para levantar todo el stack localmente (backend + microservicio CUIT + PostgreSQL +
+- [x] Docker Compose para levantar todo el stack localmente (backend + microservicio de validación + PostgreSQL +
       frontend)
 - [x] README con instrucciones claras de setup
 - [x] Variables de entorno bien documentadas (`.env.example`)
@@ -163,8 +163,8 @@
 ## 7. NICE TO HAVE (explícitamente listados)
 
 - [ ] GitHub Actions CI pipeline básico
-- [ ] Logging estructurado con Pino (nestjs-pino)
-- [ ] Rate limiting en endpoints públicos (@nestjs/throttler)
+- [x] Logging estructurado con Pino (nestjs-pino)
+- [x] Rate limiting en endpoints públicos (@nestjs/throttler)
 - [x] SSE para notificaciones real-time (o WebSockets con @nestjs/websockets si se necesita bidireccional)
 - [ ] Tests e2e con Playwright
 
@@ -199,7 +199,7 @@
 | Frontend              | 12 (+ 1 bonus PDF preview)               |
 | Backend endpoints     | 7                                        |
 | Risk score            | 7                                        |
-| Servicio mock CUIT    | 2                                        |
+| Servicio mock de validación | 2                                  |
 | Notificaciones        | 1                                        |
 | Tests                 | 1 (todos los endpoints)                  |
 | Base de datos         | 4 tablas + migraciones + seed + diagrama |

@@ -1,38 +1,51 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  ArrowLeft,
-  CheckCircle2,
-  Circle,
-  Eye,
-  Info,
-  Plus,
-  Upload,
-  X,
-} from "lucide-react";
+import { ArrowLeft, CheckCircle2, Eye, Info, Plus, Trash2, Upload, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CountryLabel } from "@/components/country-flag";
+import { INLINE_PDF_VIEWER_HASH, ProtectedPdfFrame } from "@/components/protected-pdf-frame";
+import { RiskAnalysis } from "@/components/risk-analysis";
 import { StatusBadge } from "@/components/status-badge";
-import { api, API_BASE } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { buildCountryLabelMap, buildIndustryLabelMap, useBusinessReferenceData } from "@/lib/reference-data";
 import { BusinessStatus, DocumentType, UserRole } from "@/lib/types";
 import type { Business, BusinessRiskAssessment } from "@/lib/types";
-import { COUNTRY_LABELS, STATUS_LABELS } from "@/lib/constants";
+import { STATUS_LABELS } from "@/lib/constants";
+
+type ActivityLogEntry =
+  | {
+      id: string;
+      kind: "status";
+      createdAt: string;
+      title: string;
+      subtitle: string | null;
+      actor: string | null;
+    }
+  | {
+      id: string;
+      kind: "document";
+      createdAt: string;
+      title: string;
+      subtitle: string;
+      actor: null;
+    };
 
 const DOC_TYPE_LABELS: Record<DocumentType, string> = {
   [DocumentType.FISCAL_CERTIFICATE]: "Tax Certificate",
@@ -40,32 +53,61 @@ const DOC_TYPE_LABELS: Record<DocumentType, string> = {
   [DocumentType.INSURANCE_POLICY]: "Insurance Policy",
 };
 
-function getRiskTone(score: number) {
-  if (score >= 60) {
-    return {
-      label: "High Exposure",
-      barClass: "bg-rose-400",
-      badgeClass: "bg-rose-500/15 text-rose-200 ring-1 ring-inset ring-rose-400/30",
-    };
-  }
+const STATUS_SELECT_PLACEHOLDER = "__prompt__";
 
-  if (score >= 25) {
-    return {
-      label: "Guarded Profile",
-      barClass: "bg-amber-300",
-      badgeClass: "bg-amber-400/15 text-amber-100 ring-1 ring-inset ring-amber-300/30",
-    };
-  }
+type StatusTransitionAction = {
+  status: BusinessStatus;
+  label: string;
+  description: string;
+};
 
-  return {
-    label: "Low Exposure",
-    barClass: "bg-emerald-300",
-    badgeClass: "bg-emerald-400/15 text-emerald-100 ring-1 ring-inset ring-emerald-300/30",
-  };
-}
+const STATUS_TRANSITION_ACTIONS: Record<BusinessStatus, StatusTransitionAction[]> = {
+  [BusinessStatus.PENDING]: [
+    {
+      status: BusinessStatus.IN_REVIEW,
+      label: "Move to In Review",
+      description: "Open the case for analyst review.",
+    },
+    {
+      status: BusinessStatus.REJECTED,
+      label: "Reject Case",
+      description: "Close the case as rejected with an audit note.",
+    },
+  ],
+  [BusinessStatus.IN_REVIEW]: [
+    {
+      status: BusinessStatus.APPROVED,
+      label: "Approve Case",
+      description: "Mark the company as approved and complete onboarding.",
+    },
+    {
+      status: BusinessStatus.REJECTED,
+      label: "Reject Case",
+      description: "Reject the case after documenting the review outcome.",
+    },
+  ],
+  [BusinessStatus.APPROVED]: [
+    {
+      status: BusinessStatus.IN_REVIEW,
+      label: "Send Back to Review",
+      description: "Reopen an approved case for another review cycle.",
+    },
+  ],
+  [BusinessStatus.REJECTED]: [
+    {
+      status: BusinessStatus.IN_REVIEW,
+      label: "Reopen for Review",
+      description: "Reopen a rejected case by moving it back into review.",
+    },
+  ],
+};
 
 function formatDocumentTypeLabel(type: DocumentType) {
   return DOC_TYPE_LABELS[type] ?? type.replace(/_/g, " ");
+}
+
+function formatIndustry(value: string) {
+  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function formatBytes(bytes: number) {
@@ -83,6 +125,16 @@ function formatDate(dateStr: string) {
   });
 }
 
+function formatDateTime(dateStr: string) {
+  return new Date(dateStr).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime();
   const minutes = Math.floor(diff / 60000);
@@ -93,21 +145,35 @@ function timeAgo(dateStr: string) {
   return `${days}d ago`;
 }
 
+function getActorName(actor: { firstName: string; lastName: string } | null) {
+  if (!actor) return null;
+  return `${actor.firstName} ${actor.lastName}`.trim();
+}
+
 export default function CompanyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
+  const { referenceData } = useBusinessReferenceData();
   const isAdmin = user?.role === UserRole.ADMIN;
 
   const [business, setBusiness] = useState<Business | null>(null);
-  const [riskAssessment, setRiskAssessment] =
-    useState<BusinessRiskAssessment | null>(null);
+  const [riskAssessment, setRiskAssessment] = useState<BusinessRiskAssessment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusUpdating, setStatusUpdating] = useState(false);
   const [uploading, setUploading] = useState<DocumentType | null>(null);
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [dragTarget, setDragTarget] = useState<DocumentType | null>(null);
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [statusSelection, setStatusSelection] = useState(STATUS_SELECT_PLACEHOLDER);
+  const [nextStatus, setNextStatus] = useState<BusinessStatus | null>(null);
+  const [statusReason, setStatusReason] = useState("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const countryLabels = buildCountryLabelMap(referenceData);
+  const industryLabels = buildIndustryLabelMap(referenceData);
 
   const fetchBusiness = useCallback(async () => {
     setError(null);
@@ -119,9 +185,7 @@ export default function CompanyDetailPage() {
       setBusiness(businessRes);
       setRiskAssessment(riskRes);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load company",
-      );
+      setError(err instanceof Error ? err.message : "Failed to load company");
     } finally {
       setLoading(false);
     }
@@ -131,14 +195,53 @@ export default function CompanyDetailPage() {
     fetchBusiness();
   }, [fetchBusiness]);
 
-  async function handleStatusChange(newStatus: string) {
-    if (!business || newStatus === business.status) return;
+  function resetStatusDialog() {
+    setStatusDialogOpen(false);
+    setStatusSelection(STATUS_SELECT_PLACEHOLDER);
+    setNextStatus(null);
+    setStatusReason("");
+  }
+
+  function handleStatusChange(newStatus: string) {
+    if (!business || newStatus === STATUS_SELECT_PLACEHOLDER) return;
+    setStatusSelection(newStatus);
+    setNextStatus(newStatus as BusinessStatus);
+    setStatusReason("");
+    setStatusDialogOpen(true);
+  }
+
+  async function confirmStatusChange() {
+    if (!business || !nextStatus) return;
     setStatusUpdating(true);
     try {
-      await api.patch(`/businesses/${id}/status`, { status: newStatus });
+      await api.patch(`/businesses/${id}/status`, {
+        status: nextStatus,
+        reason: statusReason.trim(),
+      });
       await fetchBusiness();
+      resetStatusDialog();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to update company status.");
     } finally {
       setStatusUpdating(false);
+    }
+  }
+
+  async function confirmDeleteBusiness() {
+    if (!business) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/businesses/${id}`, {
+        reason: deleteReason.trim(),
+      });
+      setDeleteDialogOpen(false);
+      setDeleteReason("");
+      router.replace("/");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to delete company.");
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -156,46 +259,60 @@ export default function CompanyDetailPage() {
   }
 
   if (loading) {
-    return (
-      <p className="text-sm text-muted-foreground">Loading company...</p>
-    );
+    return <p className="text-sm text-muted-foreground">Loading company...</p>;
   }
 
   if (error) {
-    return (
-      <div className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">
-        {error}
-      </div>
-    );
+    return <div className="rounded-lg bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>;
   }
 
   if (!business) {
     return <p className="text-sm text-destructive">Company not found.</p>;
   }
 
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
-
   const score = riskAssessment?.score ?? business.riskScore ?? 0;
-  const riskTone = getRiskTone(score);
   const riskBreakdown = riskAssessment?.breakdown;
   const missingDocuments = riskBreakdown?.missingDocumentTypes ?? [];
+  const requiredDocumentTypes = Object.values(DocumentType);
+  const uploadedDocumentCount = requiredDocumentTypes.filter((docType) =>
+    business.documents.some((document) => document.type === docType),
+  ).length;
+  const activityLogEntries: ActivityLogEntry[] = [
+    ...business.statusHistory.map((entry) => ({
+      id: `status-${entry.id}`,
+      kind: "status" as const,
+      createdAt: entry.createdAt,
+      title: `Status changed to ${STATUS_LABELS[entry.newStatus]}`,
+      subtitle: entry.reason,
+      actor: getActorName(entry.changedBy),
+    })),
+    ...business.documents.map((document) => ({
+      id: `document-${document.id}`,
+      kind: "document" as const,
+      createdAt: document.createdAt,
+      title: `${formatDocumentTypeLabel(document.type)} uploaded`,
+      subtitle: document.fileName,
+      actor: null,
+    })),
+  ]
+    .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    .slice(0, 8);
   const riskDrivers = [
     {
       label: "Jurisdiction signal",
       points: riskBreakdown?.countryRisk ?? 0,
       description:
         (riskBreakdown?.countryRisk ?? 0) > 0
-          ? `${COUNTRY_LABELS[business.country] ?? business.country} is treated as a higher-risk jurisdiction in the current model.`
-          : `${COUNTRY_LABELS[business.country] ?? business.country} adds no extra jurisdiction risk.`,
+          ? `${countryLabels[business.country] ?? business.country} is treated as a higher-risk jurisdiction in the current model.`
+          : `${countryLabels[business.country] ?? business.country} adds no extra jurisdiction risk.`,
     },
     {
       label: "Industry signal",
       points: riskBreakdown?.industryRisk ?? 0,
       description:
         (riskBreakdown?.industryRisk ?? 0) > 0
-          ? `${business.industry.replace(/_/g, " ")} is categorized as a higher-risk operating sector.`
-          : `${business.industry.replace(/_/g, " ")} does not add sector-specific risk.`,
+          ? `${industryLabels[business.industry] ?? formatIndustry(business.industry)} is categorized as a higher-risk operating sector.`
+          : `${industryLabels[business.industry] ?? formatIndustry(business.industry)} does not add sector-specific risk.`,
     },
     {
       label: "Documentation signal",
@@ -206,19 +323,20 @@ export default function CompanyDetailPage() {
           : "All required compliance documents are currently on file.",
     },
   ];
-  const buildDocumentUrl = (docId: string, embedded = false) => {
-    const query = token ? `?token=${encodeURIComponent(token)}` : "";
-    const hash = embedded
-      ? "#toolbar=0&navpanes=0&scrollbar=0&page=1&view=FitH"
-      : "";
-
-    return `${API_BASE}/businesses/${id}/documents/${docId}/download${query}${hash}`;
-  };
+  const availableStatusActions = STATUS_TRANSITION_ACTIONS[business.status];
+  const selectedStatusAction = availableStatusActions.find((action) => action.status === nextStatus) ?? null;
+  const getDocumentPath = (docId: string) => `/businesses/${id}/documents/${docId}/download`;
 
   return (
     <div className="space-y-6">
       {/* Breadcrumb */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/">
+            <ArrowLeft className="size-4" />
+            Go Back
+          </Link>
+        </Button>
         <div className="flex items-center gap-2 text-xs font-semibold tracking-widest uppercase text-muted-foreground">
           <Link href="/" className="hover:text-primary">
             Companies
@@ -226,94 +344,208 @@ export default function CompanyDetailPage() {
           <span>/</span>
           <span className="text-primary">{business.name}</span>
         </div>
-        <Button variant="outline" size="sm" onClick={() => router.back()}>
-          <ArrowLeft className="size-4" />
-          Go Back
-        </Button>
       </div>
 
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="font-display text-4xl font-bold tracking-tight">
-            {business.name}
-          </h1>
+          <h1 className="font-display text-4xl font-bold tracking-tight">{business.name}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Registration ID:{" "}
-            <span className="font-mono text-primary">
-              {business.id.slice(0, 8).toUpperCase()}
-            </span>
+            <span className="font-mono text-primary">{business.id.slice(0, 8).toUpperCase()}</span>
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <StatusBadge status={business.status} />
-          {isAdmin && (
-            <Select
-              value={business.status}
-              onValueChange={handleStatusChange}
-              disabled={statusUpdating}
-            >
-              <SelectTrigger className="w-44">
-                <SelectValue>
-                  {statusUpdating ? "Updating..." : "Update Status"}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {Object.values(BusinessStatus).map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {STATUS_LABELS[s]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="flex max-w-md flex-col items-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <StatusBadge status={business.status} />
+            {isAdmin && (
+              <>
+                <Select
+                  value={statusSelection}
+                  onValueChange={handleStatusChange}
+                  disabled={statusUpdating || availableStatusActions.length === 0}
+                >
+                  <SelectTrigger className="w-52">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={STATUS_SELECT_PLACEHOLDER} disabled>
+                      {statusUpdating
+                        ? "Updating..."
+                        : availableStatusActions.length === 0
+                          ? "No Next Action"
+                          : "Choose Next Action"}
+                    </SelectItem>
+                    {availableStatusActions.map((action) => (
+                      <SelectItem key={action.status} value={action.status}>
+                        {action.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  disabled={deleting}
+                >
+                  <Trash2 className="size-4" />
+                  Delete Company
+                </Button>
+              </>
+            )}
+          </div>
+          {isAdmin && availableStatusActions.length > 0 && (
+            <p className="text-right text-xs text-muted-foreground">
+              Next step: {availableStatusActions.map((action) => action.label).join(" or ")}.
+            </p>
           )}
         </div>
       </div>
 
+      <Dialog
+        open={statusDialogOpen}
+        onOpenChange={(open) => {
+          if (!statusUpdating) {
+            if (open) {
+              setStatusDialogOpen(true);
+              return;
+            }
+
+            resetStatusDialog();
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Record status decision</DialogTitle>
+            <DialogDescription>
+              Add an audit reason for moving this company from {STATUS_LABELS[business.status]} to{" "}
+              {nextStatus ? STATUS_LABELS[nextStatus] : "the selected status"}.
+              {selectedStatusAction ? ` ${selectedStatusAction.description}` : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <label className="text-xs font-semibold tracking-widest uppercase text-muted-foreground">
+              Decision Reason
+            </label>
+            <Input
+              value={statusReason}
+              onChange={(event) => setStatusReason(event.target.value)}
+              placeholder="Describe the evidence or decision basis"
+              maxLength={500}
+            />
+            <p className="text-xs text-muted-foreground">
+              Compliance transitions require a short audit note of at least 10 characters.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={resetStatusDialog} disabled={statusUpdating}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void confirmStatusChange()}
+              disabled={statusUpdating || statusReason.trim().length < 10}
+            >
+              {statusUpdating ? "Recording..." : "Record Status Change"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          if (deleting) {
+            return;
+          }
+
+          setDeleteDialogOpen(open);
+          if (!open) {
+            setDeleteReason("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete company record</DialogTitle>
+            <DialogDescription>Add a deletion reason before continuing.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <label className="text-xs font-semibold tracking-widest uppercase text-muted-foreground">
+              Deletion Reason
+            </label>
+            <Input
+              value={deleteReason}
+              onChange={(event) => setDeleteReason(event.target.value)}
+              placeholder="Explain why this company should be removed from active use"
+              maxLength={500}
+            />
+            <p className="text-xs text-muted-foreground">
+              The record will be hidden from view, but safely kept in the system in case you need it later.
+            </p>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void confirmDeleteBusiness()}
+              disabled={deleting || deleteReason.trim().length < 10}
+            >
+              {deleting ? "Deleting..." : "Delete Company"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <div className="grid grid-cols-3 gap-6">
         {/* Left column — details + documents */}
         <div className="col-span-2 space-y-6">
-          {/* Entity Details */}
-          <Card>
-            <CardContent className="p-6">
-              <h2 className="font-display text-lg font-bold tracking-tight mb-6">
-                Entity Details
-              </h2>
-              <div className="grid grid-cols-2 gap-6">
-                <Detail label="Legal Name" value={business.name} />
-                <Detail
-                  label="Jurisdiction"
-                  value={
-                    COUNTRY_LABELS[business.country] ?? business.country
-                  }
-                />
-                <Detail label="CUIT / Tax ID" value={business.taxIdentifier} />
-                <Detail
-                  label="Industry"
-                  value={business.industry.replace(/_/g, " ")}
-                />
-                <Detail
-                  label="Identifier Validated"
-                  value={business.identifierValidated ? "Yes" : "No"}
-                />
-                <Detail
-                  label="Risk Score"
-                  value={
-                    riskAssessment || business.riskScore !== null
-                      ? `${score} / 100`
-                      : "Pending"
-                  }
-                />
-              </div>
-            </CardContent>
-          </Card>
+          {/* Entity Details + Risk Analysis */}
+          <div className="grid grid-cols-3 gap-6">
+            <Card className="col-span-2">
+              <CardContent className="p-6">
+                <h2 className="font-display text-lg font-bold tracking-tight mb-6">Entity Details</h2>
+                <div className="grid grid-cols-2 gap-6">
+                  <Detail label="Legal Name" value={business.name} />
+                  <Detail
+                    label="Jurisdiction"
+                    value={
+                      <CountryLabel
+                        code={business.country}
+                        label={countryLabels[business.country] ?? business.country}
+                      />
+                    }
+                  />
+                  <Detail label="Tax ID" value={business.taxIdentifier} />
+                  <Detail
+                    label="Industry"
+                    value={industryLabels[business.industry] ?? formatIndustry(business.industry)}
+                  />
+                  <Detail label="Tax ID Validated" value={business.identifierValidated ? "Yes" : "No"} />
+                </div>
+              </CardContent>
+            </Card>
+
+            <RiskAnalysis score={score} drivers={riskDrivers} />
+          </div>
 
           {/* Documents */}
           <Card>
             <CardContent className="p-6">
               <div className="mb-6 flex items-center justify-between">
                 <h2 className="font-display text-lg font-bold tracking-tight">
-                  Compliance Documents
+                  Compliance Documents{" "}
+                  <span className="text-base font-medium text-muted-foreground">
+                    ({uploadedDocumentCount}/3)
+                  </span>
                 </h2>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   PDF only
@@ -321,224 +553,141 @@ export default function CompanyDetailPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {Object.values(DocumentType).map((docType) => {
-                  const doc = business.documents.find(
-                    (document) => document.type === docType,
-                  );
+                {requiredDocumentTypes.map((docType) => {
+                  const doc = business.documents.find((document) => document.type === docType);
                   const isUploaded = !!doc;
                   const isUploading = uploading === docType;
                   const isDragActive = dragTarget === docType;
+                  const documentLabel = formatDocumentTypeLabel(docType);
 
                   if (isUploaded) {
                     return (
-                      <div
-                        key={docType}
-                        className="relative flex h-[360px] flex-col rounded-xl border bg-card p-3"
-                      >
-                        <div className="absolute right-3 top-3 z-10 flex size-8 items-center justify-center rounded-full bg-emerald-500 text-white">
-                          <CheckCircle2 className="size-4" />
-                        </div>
+                      <div key={docType} className="space-y-3">
+                        <p className="text-center text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                          {documentLabel}
+                        </p>
 
-                        <div className="min-h-0 overflow-hidden rounded-lg border bg-muted">
-                          <iframe
-                            src={buildDocumentUrl(doc.id, true)}
-                            className="h-52 w-full pointer-events-none"
-                            title={`${doc.fileName} first page`}
-                          />
-                        </div>
+                        <div className="relative flex h-[360px] flex-col rounded-xl border bg-card p-3">
+                          <div className="absolute right-3 top-3 z-10 flex size-8 items-center justify-center rounded-full bg-emerald-500 text-white">
+                            <CheckCircle2 className="size-4" />
+                          </div>
 
-                        <div className="mt-4 min-h-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-foreground">
-                            {doc.fileName}
-                          </p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                            {formatDocumentTypeLabel(doc.type)}
-                          </p>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            Uploaded {formatDate(doc.createdAt)}
-                          </p>
-                        </div>
+                          <div className="min-h-0 overflow-hidden rounded-lg border bg-muted">
+                            <ProtectedPdfFrame
+                              key={doc.id}
+                              path={getDocumentPath(doc.id)}
+                              className="pointer-events-none h-52 w-full"
+                              title={`${doc.fileName} first page`}
+                              viewerHash={INLINE_PDF_VIEWER_HASH}
+                              fallbackLabel="Unable to load document preview."
+                            />
+                          </div>
 
-                        <div className="mt-4 flex gap-2">
-                          <Popover>
-                            <PopoverTrigger asChild>
-                              <Button variant="outline" size="sm" className="flex-1">
-                                <Info className="size-3.5" />
-                                Info
-                              </Button>
-                            </PopoverTrigger>
-                            <PopoverContent align="start" className="w-72 space-y-4">
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                                  Document Info
-                                </p>
-                                <p className="mt-2 text-sm font-semibold text-foreground">
-                                  {doc.fileName}
-                                </p>
-                              </div>
+                          <div className="mt-4 min-h-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-foreground">{doc.fileName}</p>
+                            <p className="mt-2 text-sm text-muted-foreground">
+                              Uploaded {formatDate(doc.createdAt)}
+                            </p>
+                          </div>
 
-                              <div className="grid grid-cols-2 gap-3 text-sm">
-                                <InfoItem label="Type" value={formatDocumentTypeLabel(doc.type)} />
-                                <InfoItem label="Size" value={formatBytes(doc.fileSize)} />
-                                <InfoItem label="Uploaded" value={formatDate(doc.createdAt)} />
-                                <InfoItem label="Format" value={doc.mimeType} />
-                              </div>
-                            </PopoverContent>
-                          </Popover>
+                          <div className="mt-4 flex gap-2">
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button variant="outline" size="sm" className="flex-1">
+                                  <Info className="size-3.5" />
+                                  Info
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent align="start" className="w-72 space-y-4">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                    Document Info
+                                  </p>
+                                  <p className="mt-2 text-sm font-semibold text-foreground">{doc.fileName}</p>
+                                </div>
 
-                          <Button
-                            size="sm"
-                            className="flex-1"
-                            onClick={() => setPreviewDocId(doc.id)}
-                          >
-                            <Eye className="size-3.5" />
-                            Full Preview
-                          </Button>
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                  <InfoItem label="Type" value={documentLabel} />
+                                  <InfoItem label="Size" value={formatBytes(doc.fileSize)} />
+                                  <InfoItem label="Uploaded" value={formatDate(doc.createdAt)} />
+                                  <InfoItem label="Format" value={doc.mimeType} />
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+
+                            <Button size="sm" className="flex-1" onClick={() => setPreviewDocId(doc.id)}>
+                              <Eye className="size-3.5" />
+                              Full Preview
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     );
                   }
 
                   return (
-                    <div
-                      key={docType}
-                      className={`flex h-[360px] flex-col items-center justify-center rounded-xl border-2 border-dashed bg-card p-6 text-center transition-colors ${
-                        isDragActive
-                          ? "border-primary bg-primary/5"
-                          : "border-border"
-                      }`}
-                      onDragOver={(event) => {
-                        if (!isAdmin) return;
-                        event.preventDefault();
-                        setDragTarget(docType);
-                      }}
-                      onDragLeave={() => {
-                        if (dragTarget === docType) {
-                          setDragTarget(null);
-                        }
-                      }}
-                      onDrop={(event) => {
-                        if (!isAdmin) return;
-                        event.preventDefault();
-                        setDragTarget(null);
-                        const file = event.dataTransfer.files?.[0];
-                        if (file) {
-                          void handleUpload(docType, file);
-                        }
-                      }}
-                    >
-                      <Plus className="size-12 text-muted-foreground/40" />
-                      <p className="mt-5 text-sm font-semibold text-foreground">
-                        {formatDocumentTypeLabel(docType)}
-                      </p>
-                      <p className="mt-2 max-w-[15rem] text-sm text-muted-foreground">
-                        {isAdmin
-                          ? "Upload the missing PDF for this requirement."
-                          : "This document has not been uploaded yet."}
+                    <div key={docType} className="space-y-3">
+                      <p className="text-center text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        {documentLabel}
                       </p>
 
-                      {isAdmin ? (
-                        <label className="mt-6 cursor-pointer">
-                          <input
-                            type="file"
-                            accept=".pdf"
-                            className="hidden"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0];
-                              if (file) {
-                                void handleUpload(docType, file);
-                              }
-                            }}
-                          />
-                          <Button variant="outline" size="sm" asChild disabled={isUploading}>
-                            <span>
-                              <Upload className="size-3.5" />
-                              {isUploading ? "Uploading..." : "Upload"}
-                            </span>
-                          </Button>
-                        </label>
-                      ) : null}
+                      <div
+                        className={`flex h-[360px] flex-col items-center justify-center rounded-xl border-2 border-dashed bg-card p-6 text-center transition-colors ${
+                          isDragActive ? "border-primary bg-primary/5" : "border-border"
+                        }`}
+                        onDragOver={(event) => {
+                          if (!isAdmin) return;
+                          event.preventDefault();
+                          setDragTarget(docType);
+                        }}
+                        onDragLeave={() => {
+                          if (dragTarget === docType) {
+                            setDragTarget(null);
+                          }
+                        }}
+                        onDrop={(event) => {
+                          if (!isAdmin) return;
+                          event.preventDefault();
+                          setDragTarget(null);
+                          const file = event.dataTransfer.files?.[0];
+                          if (file) {
+                            void handleUpload(docType, file);
+                          }
+                        }}
+                      >
+                        <Plus className="size-12 text-muted-foreground/40" />
+                        <p className="mt-2 max-w-[15rem] text-sm text-muted-foreground">
+                          {isAdmin
+                            ? "Upload the missing PDF for this requirement."
+                            : "This document has not been uploaded yet."}
+                        </p>
+
+                        {isAdmin ? (
+                          <label className="mt-6 cursor-pointer">
+                            <input
+                              type="file"
+                              accept=".pdf"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                if (file) {
+                                  void handleUpload(docType, file);
+                                }
+                              }}
+                            />
+                            <Button variant="outline" size="sm" asChild disabled={isUploading}>
+                              <span>
+                                <Upload className="size-3.5" />
+                                {isUploading ? "Uploading..." : "Upload"}
+                              </span>
+                            </Button>
+                          </label>
+                        ) : null}
+                      </div>
                     </div>
                   );
                 })}
               </div>
-            </CardContent>
-          </Card>
-
-          <Card className="overflow-hidden border-0 shadow-none">
-            <CardContent className="rounded-[28px] bg-slate-950 p-8 text-slate-50">
-              <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold tracking-[0.24em] uppercase text-slate-400">
-                    Risk Review
-                  </p>
-                  <div className="flex items-end gap-3">
-                    <span className="font-display text-5xl font-bold tracking-tight">
-                      {score}
-                    </span>
-                    <span className="pb-2 text-sm text-slate-400">/ 100</span>
-                  </div>
-                  <p className="max-w-2xl text-sm leading-6 text-slate-300">
-                    Based on jurisdiction, industry profile, and document
-                    coverage. This score refreshes automatically when company
-                    documents change.
-                  </p>
-                </div>
-
-                <div
-                  className={`inline-flex items-center rounded-full px-4 py-2 text-xs font-semibold tracking-[0.18em] uppercase ${riskTone.badgeClass}`}
-                >
-                  {riskTone.label}
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className={`h-full rounded-full transition-all ${riskTone.barClass}`}
-                    style={{ width: `${Math.max(score, 6)}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-6 grid gap-4 md:grid-cols-3">
-                {riskDrivers.map((driver) => (
-                  <div
-                    key={driver.label}
-                    className="rounded-2xl border border-white/10 bg-white/5 p-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-white">
-                        {driver.label}
-                      </p>
-                      <span className="text-xs font-semibold tracking-[0.18em] uppercase text-slate-400">
-                        +{driver.points}
-                      </span>
-                    </div>
-                    <p className="mt-3 text-sm leading-6 text-slate-300">
-                      {driver.description}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              {missingDocuments.length > 0 && (
-                <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs font-semibold tracking-[0.2em] uppercase text-slate-400">
-                    Missing Documents
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {missingDocuments.map((type) => (
-                      <span
-                        key={type}
-                        className="rounded-full bg-white/8 px-3 py-1.5 text-xs font-medium text-slate-200"
-                      >
-                        {formatDocumentTypeLabel(type)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>
@@ -547,49 +696,62 @@ export default function CompanyDetailPage() {
         <div className="space-y-6">
           <Card>
             <CardContent className="p-6">
-              <h2 className="font-display text-lg font-bold tracking-tight mb-6">
-                Verification Journey
-              </h2>
-              <div className="space-y-6">
-                {business.statusHistory.map((entry, i) => {
-                  const isLast = i === business.statusHistory.length - 1;
-                  return (
-                    <div key={entry.id} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        {isLast ? (
-                          <Circle className="size-5 text-primary" />
-                        ) : (
-                          <CheckCircle2 className="size-5 text-primary" />
-                        )}
-                        {!isLast && (
-                          <div className="mt-1 w-px flex-1 bg-border" />
-                        )}
-                      </div>
-                      <div className="pb-4">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold">
-                            Status: {STATUS_LABELS[entry.newStatus]}
-                          </p>
-                          <span className="text-xs text-muted-foreground">
-                            {timeAgo(entry.createdAt)}
-                          </span>
-                        </div>
-                        {entry.reason && (
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {entry.reason}
-                          </p>
-                        )}
-                        {entry.changedBy && (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            By {entry.changedBy.firstName}{" "}
-                            {entry.changedBy.lastName}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
+                <div>
+                  <h2 className="font-display text-lg font-bold tracking-tight">Verification Journey</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    A complete timeline of each verification decision.
+                  </p>
+                </div>
+                <Badge variant="outline" className="bg-background">
+                  {business.statusHistory.length} Events
+                </Badge>
               </div>
+
+              {business.statusHistory.length > 0 ? (
+                <div className="relative pl-8">
+                  {business.statusHistory.length > 1 && (
+                    <div className="absolute left-[7px] top-2 bottom-2 w-0.5 bg-border rounded-full" />
+                  )}
+
+                  <div className="space-y-5">
+                    {[...business.statusHistory].reverse().map((entry, index) => (
+                      <div key={entry.id} className="relative">
+                        <div className="absolute -left-8 top-1 flex size-4 items-center justify-center">
+                          <div
+                            className={`size-3.5 rounded-full ring-2 ring-background ${
+                              index === 0 ? "bg-primary" : "bg-muted-foreground/30"
+                            }`}
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge status={entry.newStatus} />
+                          <span className="text-xs text-muted-foreground">{timeAgo(entry.createdAt)}</span>
+                        </div>
+
+                        {entry.reason && (
+                          <p className="mt-1.5 text-sm leading-6 text-foreground">{entry.reason}</p>
+                        )}
+
+                        <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          {entry.changedBy && (
+                            <span>
+                              {entry.changedBy.firstName} {entry.changedBy.lastName}
+                            </span>
+                          )}
+                          <span className="text-muted-foreground/50">&middot;</span>
+                          <span>{formatDateTime(entry.createdAt)}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No verification events have been recorded yet.
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -600,26 +762,23 @@ export default function CompanyDetailPage() {
                 Activity Log
               </h3>
               <div className="space-y-3">
-                {business.statusHistory
-                  .slice()
-                  .reverse()
-                  .slice(0, 5)
-                  .map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span>
-                        Status changed to{" "}
-                        <span className="font-medium">
-                          {STATUS_LABELS[entry.newStatus]}
-                        </span>
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {timeAgo(entry.createdAt)}
-                      </span>
+                {activityLogEntries.map((entry) => (
+                  <div key={entry.id} className="flex items-start justify-between gap-4 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">{entry.title}</p>
+                      {entry.subtitle && (
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{entry.subtitle}</p>
+                      )}
+                      {entry.actor && <p className="mt-1 text-xs text-muted-foreground">By {entry.actor}</p>}
                     </div>
-                  ))}
+                    <div className="shrink-0 text-right">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        {entry.kind === "document" ? "Upload" : "Status"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">{timeAgo(entry.createdAt)}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
@@ -638,10 +797,12 @@ export default function CompanyDetailPage() {
             >
               <X className="size-4" />
             </Button>
-            <iframe
-              src={buildDocumentUrl(previewDocId)}
+            <ProtectedPdfFrame
+              key={previewDocId}
+              path={getDocumentPath(previewDocId)}
               className="size-full rounded-lg"
               title="Document preview"
+              fallbackLabel="Unable to load document preview."
             />
           </div>
         </div>
@@ -650,13 +811,11 @@ export default function CompanyDetailPage() {
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
-      <p className="text-xs font-semibold tracking-widest uppercase text-primary mb-1">
-        {label}
-      </p>
-      <p className="text-sm font-medium capitalize">{value}</p>
+      <p className="text-xs font-semibold tracking-widest uppercase text-primary mb-1">{label}</p>
+      <div className="text-sm font-medium capitalize">{value}</div>
     </div>
   );
 }
@@ -664,9 +823,7 @@ function Detail({ label, value }: { label: string; value: string }) {
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
     <div className="space-y-1">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-        {label}
-      </p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
       <p className="text-sm text-foreground">{value}</p>
     </div>
   );

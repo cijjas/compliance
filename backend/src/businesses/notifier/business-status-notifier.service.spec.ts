@@ -1,5 +1,5 @@
-import { BusinessStatus } from '../common/enums';
-import { NotificationsService } from '../notifications/notifications.service';
+import { BusinessStatus } from '../../common/enums';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { BusinessStatusNotifierService } from './business-status-notifier.service';
 
 describe('BusinessStatusNotifierService', () => {
