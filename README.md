@@ -9,6 +9,8 @@ complif/
 ├── frontend/                  # Next.js 15 + shadcn/ui + Tailwind CSS
 ├── backend/                   # NestJS + TypeORM + PostgreSQL
 ├── microservice-format-validation/  # Country-specific tax ID validator
+├── infrastructure/            # Terraform (AWS + Vercel)
+├── .github/workflows/         # CI pipeline
 └── docker-compose.yml
 ```
 
@@ -21,6 +23,8 @@ complif/
 | Microservice | NestJS (lightweight country-specific tax ID validator) |
 | Database | PostgreSQL 16 |
 | Containerization | Docker, Docker Compose |
+| Infrastructure | Terraform (AWS + Vercel) |
+| CI | GitHub Actions |
 
 ## Quick Start
 
@@ -99,6 +103,30 @@ npm run dev
 - `businesses` - Companies being onboarded (name, tax ID, country, industry, status, risk score)
 - `documents` - Uploaded files (fiscal certificate, registration proof, insurance policy)
 - `status_history` - Audit trail of status changes with timestamps and reasons
+
+## CI Pipeline
+
+Three stages run on every push/PR to `main`:
+
+1. **build** — compiles backend, microservice, and frontend in parallel
+2. **test** — runs unit tests for backend and microservice
+3. **deploy** — validates Terraform configuration (`terraform validate`, no credentials needed)
+
+## Infrastructure (Terraform)
+
+The `infrastructure/` directory contains validated `.tf` files ready to provision:
+
+| Resource | Purpose | Maps to Docker Compose |
+|----------|---------|----------------------|
+| VPC (2 public + 2 private subnets) | Network isolation | Docker network |
+| RDS PostgreSQL | Managed database | `postgres` service |
+| S3 bucket | Document storage (versioned, encrypted) | `uploads` volume |
+| ECS Fargate (backend) | Backend API | `backend` service |
+| ECS Fargate (microservice) | Tax ID validator | `format-validation` service |
+| ALB + HTTPS | Load balancer | Port 8080 binding |
+| Vercel project | Frontend hosting | `frontend` service |
+
+Not deployed — only validated in CI. See `QUESTIONS.md` #17 for rationale.
 
 ## Environment Variables
 

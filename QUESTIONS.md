@@ -231,7 +231,30 @@ persisting scores alongside the business record. Storing the full assessment bre
 factors, and the policy/rule version) ensures that every historical score can be explained and reproduced even
 after policy changes, which is the core auditability requirement for a compliance system.
 
-## 17. How to structure AGENTS.md for agent guidance
+## 17. Deploy strategy and CI pipeline design
+
+Question: The challenge mentions Terraform files should be "ready and validated" but not necessarily deployed.
+How should the CI pipeline reflect this, and what would a real deployment look like?
+
+Decision: The CI pipeline has three stages: **build** (compile all projects in parallel), **test** (run unit
+tests for backend and microservice), and **deploy** (validate Terraform configuration). The deploy stage runs
+`terraform init -backend=false` and `terraform validate` without any cloud credentials—it only checks that the
+`.tf` files are syntactically correct and internally consistent.
+
+Reasoning: The goal is to catch infrastructure regressions in CI without requiring AWS/Vercel secrets in the
+repository. A full `terraform plan` would need real credentials and a state backend, which adds operational
+overhead that is unnecessary for a challenge submission. The validation-only approach proves the Terraform is
+well-formed and ready to be applied. In a real production scenario, the deploy stage would use OIDC-based
+credentials, run `terraform plan` on PRs for review, and `terraform apply` on merge to main—but that requires
+live cloud accounts and is explicitly out of scope.
+
+The infrastructure itself mirrors the Docker Compose architecture: ECS Fargate replaces container services
+(backend + microservice with service discovery replacing Docker's internal DNS), RDS replaces the local
+PostgreSQL container, S3 replaces the local `uploads/` volume, an ALB handles HTTPS termination, and Vercel
+hosts the frontend. The VPC uses public subnets for the ALB and NAT gateway, and private subnets for ECS tasks
+and RDS—keeping the database and application containers unreachable from the internet.
+
+## 18. How to structure AGENTS.md for agent guidance
 
 Question: How should AGENTS.md be organized to help agents (and new developers) understand the project without
 bloating the system prompt?

@@ -135,13 +135,13 @@
 
 > Explícitamente bonus, pero lo listo completo por si se quiere hacer.
 
-- [ ] Vercel para hosting de frontend
-- [ ] AWS RDS PostgreSQL instance
-- [ ] AWS S3 bucket para documentos
-- [ ] AWS ECS para el backend
-- [ ] VPC con subnets públicas y privadas
-- [ ] Security groups apropiados
-- [ ] Archivos `.tf` listos y validados (no hace falta deploy real)
+- [x] Vercel para hosting de frontend
+- [x] AWS RDS PostgreSQL instance
+- [x] AWS S3 bucket para documentos
+- [x] AWS ECS para el backend
+- [x] VPC con subnets públicas y privadas
+- [x] Security groups apropiados
+- [x] Archivos `.tf` listos y validados (no hace falta deploy real)
 
 ---
 

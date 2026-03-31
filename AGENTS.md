@@ -147,6 +147,21 @@ Every feature must answer clearly:
 - All state truth from backend API.
 - No optimistic state changes; wait for backend confirmation.
 
+## Infrastructure (`infrastructure/`)
+
+Terraform files validated in CI, not deployed. Maps 1:1 to the Docker Compose architecture:
+
+- **VPC**: 2 public subnets (ALB, NAT) + 2 private subnets (ECS, RDS).
+- **ECS Fargate**: backend + format-validation with service discovery (replaces Docker DNS).
+- **RDS PostgreSQL**: private subnet, accessible only from ECS security group.
+- **S3**: document storage with versioning and encryption (replaces `uploads/` volume).
+- **ALB**: HTTPS termination in public subnet, forwards to backend.
+- **Vercel**: frontend hosting, configured via Vercel provider.
+
+## CI Pipeline (`.github/workflows/ci.yml`)
+
+Three sequential stages: **build** → **test** → **deploy** (Terraform validate only).
+
 ## Local Dev
 
 - `docker compose up --build` — PostgreSQL, backend, validation microservice.
