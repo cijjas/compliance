@@ -55,7 +55,7 @@ export function calculateBusinessRiskAssessment(
 
   return {
     score,
-    requiresManualReview: score >= policy.manualReviewThreshold,
+    requiresManualReview: score > policy.manualReviewThreshold,
     breakdown,
   };
 }

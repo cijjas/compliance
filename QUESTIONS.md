@@ -15,7 +15,7 @@ Decision:
   - high-risk jurisdictions such as `CU`, `IR`, `KP`, `SY`, `MM`, `VE`, `AF`, `YE`: `+30`
   - elevated-risk industries such as `construction`, `security`, `currency_exchange`, `casino`, `gambling`, `crypto`: `+25`
   - missing required documentation: `+20` once if any required document is missing
-  - manual review: `score >= 70`
+  - manual review: `score > 70`
 
 Reasoning:
 In a compliance product, policy should be governed data, not scattered application constants. Putting jurisdictions, sectors, and numeric thresholds in database reference tables makes the backend authoritative, keeps the frontend in sync through API responses, and allows future policy changes without code drift or a redeploy of multiple services.
@@ -173,3 +173,14 @@ No. Risk score informs triage and manual review, but final status changes remain
 
 Reasoning:
 In a compliance company, risk scoring is a decision-support control, not the decision itself. A high score should surface additional scrutiny, not silently produce an approval or rejection without analyst rationale. Keeping workflow transitions explicit preserves auditability and makes it clear which outcomes came from human review versus automated assessment.
+
+## 15. Whether the format-validation microservice should be publicly reachable
+
+Question:
+The backend depends on the format-validation microservice, but should that service also be directly accessible from the host machine or external API clients?
+
+Decision:
+No. The format-validation microservice is kept internal to the Docker network and is intended to be reachable only by the backend service.
+
+Reasoning:
+This service is an implementation detail of the onboarding API, not a user-facing product surface. Publishing it on a host port would expose an unauthenticated internal dependency directly to browsers, Postman, and any process on the machine, which weakens the intended trust boundary and increases accidental misuse. Keeping only `expose: 3001` allows the backend to continue calling `http://format-validation:3001` over Docker service discovery while removing direct host access to the microservice.

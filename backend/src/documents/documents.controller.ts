@@ -1,5 +1,6 @@
 import {
   Body,
+  UnsupportedMediaTypeException,
   Controller,
   Get,
   HttpStatus,
@@ -28,6 +29,21 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { UserRole } from '../common/enums';
 
+export const DOCUMENT_UPLOAD_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
+export function documentPdfFileFilter(
+  _req: Express.Request,
+  file: Express.Multer.File,
+  cb: (error: Error | null, acceptFile: boolean) => void,
+): void {
+  if (file.mimetype !== 'application/pdf') {
+    cb(new UnsupportedMediaTypeException('Only PDF files are allowed'), false);
+    return;
+  }
+
+  cb(null, true);
+}
+
 @ApiTags('Documents')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -47,21 +63,15 @@ export class DocumentsController {
           cb(null, uniqueName);
         },
       }),
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-      fileFilter: (_req, file, cb) => {
-        if (file.mimetype !== 'application/pdf') {
-          cb(new Error('Only PDF files are allowed'), false);
-          return;
-        }
-        cb(null, true);
-      },
+      limits: { fileSize: DOCUMENT_UPLOAD_MAX_SIZE_BYTES },
+      fileFilter: documentPdfFileFilter,
     }),
   )
   upload(
     @Param('businessId', new ParseUUIDPipe()) businessId: string,
     @UploadedFile(
       new ParseFilePipeBuilder()
-        .addMaxSizeValidator({ maxSize: 10 * 1024 * 1024 })
+        .addMaxSizeValidator({ maxSize: DOCUMENT_UPLOAD_MAX_SIZE_BYTES })
         .build({
           errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,
           fileIsRequired: true,

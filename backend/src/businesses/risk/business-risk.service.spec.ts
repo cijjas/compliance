@@ -101,7 +101,7 @@ describe('BusinessRiskService', () => {
     });
   });
 
-  it('treats the manual review threshold as inclusive', async () => {
+  it('does not trigger manual review when the score lands exactly on the threshold', async () => {
     referenceDataService.getRiskPolicySnapshot.mockResolvedValue({
       countryRiskPointsByCode: new Map([['VE', 45]]),
       industryRiskPointsByKey: new Map([['security', 25]]),
@@ -125,6 +125,6 @@ describe('BusinessRiskService', () => {
     });
 
     expect(assessment.score).toBe(70);
-    expect(assessment.requiresManualReview).toBe(true);
+    expect(assessment.requiresManualReview).toBe(false);
   });
 });

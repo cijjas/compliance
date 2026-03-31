@@ -3,7 +3,18 @@ jest.mock('uuid', () => ({
 }));
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { DocumentsController } from './documents.controller';
+import {
+  NotFoundException,
+  StreamableFile,
+  UnsupportedMediaTypeException,
+} from '@nestjs/common';
+import { writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
+  DocumentsController,
+  documentPdfFileFilter,
+} from './documents.controller';
 import { DocumentsService } from './documents.service';
 import { UploadDocumentDto } from './dto/upload-document.dto';
 import { DocumentType } from '../common/enums';
@@ -46,6 +57,39 @@ describe('DocumentsController', () => {
     controller = module.get(DocumentsController);
   });
 
+  it('accepts PDF files in the upload filter', () => {
+    const callback = jest.fn();
+
+    documentPdfFileFilter(
+      {} as Express.Request,
+      {
+        mimetype: 'application/pdf',
+        originalname: 'fiscal-certificate.pdf',
+      } as Express.Multer.File,
+      callback,
+    );
+
+    expect(callback).toHaveBeenCalledWith(null, true);
+  });
+
+  it('rejects non-PDF files in the upload filter with 415', () => {
+    const callback = jest.fn();
+
+    documentPdfFileFilter(
+      {} as Express.Request,
+      {
+        mimetype: 'image/png',
+        originalname: 'fiscal-certificate.png',
+      } as Express.Multer.File,
+      callback,
+    );
+
+    const [error, accepted] = callback.mock.calls[0];
+    expect(error).toBeInstanceOf(UnsupportedMediaTypeException);
+    expect((error as UnsupportedMediaTypeException).getStatus()).toBe(415);
+    expect(accepted).toBe(false);
+  });
+
   it('upload delegates to the documents service', async () => {
     const businessId = '8f5f6fa8-c6cf-4df2-9107-b29339af22a6';
     const file = {
@@ -80,19 +124,44 @@ describe('DocumentsController', () => {
   });
 
   it('download resolves the document via the service', async () => {
+    const filePath = join(tmpdir(), 'complif-documents-controller-success.pdf');
     const doc = buildMockDocument({
+      filePath,
       mimeType: 'application/pdf',
       fileName: 'fiscal-certificate.pdf',
     });
+    const res = {
+      set: jest.fn(),
+    };
+
+    writeFileSync(filePath, 'pdf-bytes');
     documentsService.findOneForBusiness.mockResolvedValue(doc);
 
-    // We only verify delegation — streaming depends on the filesystem
     await expect(
-      documentsService.findOneForBusiness(doc.businessId, doc.id),
-    ).resolves.toEqual(doc);
+      controller.download(doc.businessId, doc.id, res as never),
+    ).resolves.toBeInstanceOf(StreamableFile);
     expect(documentsService.findOneForBusiness).toHaveBeenCalledWith(
       doc.businessId,
       doc.id,
     );
+    expect(res.set).toHaveBeenCalledWith({
+      'Content-Type': doc.mimeType,
+      'Content-Disposition': `inline; filename="${doc.fileName}"`,
+    });
+  });
+
+  it('download fails with NotFoundException when the file is missing on disk', async () => {
+    const doc = buildMockDocument({
+      filePath: join(tmpdir(), 'complif-missing-document.pdf'),
+    });
+    const res = {
+      set: jest.fn(),
+    };
+
+    documentsService.findOneForBusiness.mockResolvedValue(doc);
+
+    await expect(
+      controller.download(doc.businessId, doc.id, res as never),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
