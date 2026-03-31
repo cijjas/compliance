@@ -162,7 +162,7 @@
 
 ## 7. NICE TO HAVE (explícitamente listados)
 
-- [ ] GitHub Actions CI pipeline básico
+- [x] GitHub Actions CI pipeline básico
 - [x] Logging estructurado con Pino (nestjs-pino)
 - [x] Rate limiting en endpoints públicos (@nestjs/throttler)
 - [x] SSE para notificaciones real-time (o WebSockets con @nestjs/websockets si se necesita bidireccional)

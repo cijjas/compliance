@@ -17,10 +17,10 @@ This is a **compliance-grade onboarding portal**. Not a typical CRUD app.
 
 ### 1. **Centralized Compliance Logic**
 
-- Risk scoring: one service method, never scattered.
-- Status transitions: modeled explicitly, not ad hoc.
-- Document completeness: one reusable function.
-- Authorization: in guards/policies, never inline role checks.
+- Risk scoring: isolated in the `risk-scoring` module, never scattered.
+- Status transitions: modeled explicitly in `business-status-policy.ts`, not ad hoc.
+- Document completeness: checked by the risk assessment policy via `REQUIRED_DOCUMENT_TYPES`.
+- Authorization: in guards (`JwtAuthGuard`, `RolesGuard`), never inline role checks.
 
 ### 2. **DTO-First Boundaries**
 
@@ -28,51 +28,47 @@ This is a **compliance-grade onboarding portal**. Not a typical CRUD app.
 - Pipes validate and transform before business logic.
 - No `req.body` directly; always typed DTOs.
 
-### 3. **Constants & Enums (Centralized)**
+### 3. **Enums (Centralized in `backend/src/common/enums/`)**
 
-**`backend/src/common/enums/`:**
+- `BusinessStatus` — `pending`, `in_review`, `approved`, `rejected`
+- `UserRole` — `admin`, `viewer`
+- `DocumentType` — `fiscal_certificate`, `registration_proof`, `insurance_policy`, `other`
 
-- `BusinessStatus` (PENDING, UNDER_REVIEW, APPROVED, REJECTED, CLOSED)
-- `UserRole` (ADMIN, VIEWER)
-- `DocumentType` (INCORPORATION_CERT, TAX_CERT, etc.)
-- `RiskLevel` (LOW, MEDIUM, HIGH, CRITICAL)
+There is no `RiskLevel` enum or `common/constants/` directory. Risk thresholds and weights live in database
+policy tables (`country_policies`, `industry_policies`, `risk_settings`), not in code constants.
 
-**`backend/src/common/constants/`:**
+### 4. **Database-Driven Risk Policy**
 
-- `RISK_THRESHOLDS` (MANUAL_REVIEW: 70, CRITICAL: 85)
-- `HIGH_RISK_INDUSTRIES`, `HIGH_RISK_COUNTRIES`
-- `MIN_DOCUMENTS_FOR_APPROVAL`
-- `RISK_WEIGHTS` (per factor)
+Risk scoring configuration is governed data, not code constants:
 
-**Rule**: Never hardcode `70`, `20`, or `'APPROVED'` inline. Always reference the constant.
+- **Country risk**: `country_policies` table (e.g. CU +30, AR +0).
+- **Industry risk**: `industry_policies` table (e.g. casino +25, technology +0).
+- **Risk settings**: `risk_settings` table (`documentation_risk_points`, `manual_review_threshold`).
+- **Required documents**: `REQUIRED_DOCUMENT_TYPES` in `risk-scoring/risk-assessment.policy.ts`.
 
-### 4. **Explicit State Transition Rules**
+The `risk-scoring` module loads its own policy snapshot from these tables. The pure scoring function
+(`calculateRiskAssessment`) takes input + snapshot and returns a deterministic result.
 
-```typescript
-const VALID_TRANSITIONS = {
-  PENDING: ["UNDER_REVIEW", "REJECTED"],
-  UNDER_REVIEW: ["APPROVED", "REJECTED", "PENDING"],
-  APPROVED: ["CLOSED"],
-  REJECTED: ["CLOSED"],
-  CLOSED: [],
-};
+### 5. **Explicit State Transition Rules**
+
+Defined in `businesses/business-status-policy.ts`:
+
+```
+pending    → in_review, rejected
+in_review  → approved, rejected
+approved   → in_review
+rejected   → in_review
 ```
 
-Enforce in a dedicated service method before any update.
+Enforced before any status update. Every transition requires a written reason.
 
-### 5. **Role-Based Authorization via Guards**
+### 6. **Role-Based Authorization via Guards**
 
-- `JwtAuthGuard`: validates token, attaches user.
-- `AdminGuard`: enforces admin-only at route level.
-- `PolicyServices`: encapsulate complex authorization.
+- `JwtAuthGuard` (`common/guards/jwt-auth.guard.ts`): validates token, attaches user.
+- `RolesGuard` (`common/guards/roles.guard.ts`): enforces role requirement at route level.
+- `@Roles()` decorator (`common/decorators/roles.decorator.ts`): declares required role on endpoints.
+- `@CurrentUser()` decorator: extracts authenticated user from request.
 - No inline role checks inside handlers.
-
-### 6. **Structured Audit Logging**
-
-- Status changes: append to `status_history` transactionally.
-- Risk score changes: log reason (which factor triggered recalc).
-- Authorization failures: log denial with context.
-- Format: structured JSON (timestamp, actor, action, before/after).
 
 ### 7. **History by Default**
 
@@ -82,18 +78,15 @@ Enforce in a dedicated service method before any update.
 
 ### 8. **Deterministic Scoring**
 
-Same input → same output, always.
+Same input + same policy = same output, always. The scoring function is pure:
 
 ```typescript
-function calculateRiskScore(business: Business, docs: Document[]): number {
-  let score = 0;
-  score += isMissingRequiredDocument(business, docs) ? 25 : 0;
-  score += isHighRiskIndustry(business.industry) ? 20 : 0;
-  score += isHighRiskCountry(business.country) ? 15 : 0;
-  score += !business.identifier_validated ? 15 : 0;
-  return Math.min(score, 100);
-}
+// risk-scoring/risk-assessment.policy.ts
+function calculateRiskAssessment(input: RiskInput, policy: RiskPolicySnapshot): RiskAssessment
 ```
+
+The `RiskAssessmentService` handles orchestration (load business, compute, persist score). The pure function
+handles math.
 
 ### 9. **Thin Controllers**
 
@@ -106,19 +99,7 @@ Controllers orchestrate, don't decide:
 ### 10. **Configuration over Literals**
 
 - API URLs, environment flags, microservice endpoints → `ConfigService`.
-- Business rule thresholds → centralized constants (never environment-dependent).
-
-### 11. **Testable Domain Services**
-
-Risk, transitions, validation must be independently testable.
-
-```typescript
-// Good: pure function
-function calculateRisk(business, documents): number { ... }
-
-// Bad: tightly coupled to DB/HTTP
-async function scoreAndPersist(id: string) { ... }
-```
+- Business rule thresholds → database policy tables (never hardcoded, never environment-dependent).
 
 ---
 
@@ -126,13 +107,13 @@ async function scoreAndPersist(id: string) { ... }
 
 - **Unsafe type casting** — No `as any`, unchecked casts bypassing DTO/schema.
 - **Duplicated business logic** — Risk, document, transition rules in multiple places.
-- **Inline authorization** — Role checks inside handlers instead of guards/policies.
+- **Inline authorization** — Role checks inside handlers instead of guards.
 - **Business logic in Next.js** — Frontend must not become a second compliance engine.
-- **Magic numbers** — No inline `70`, `20`, risk weights. Use constants.
+- **Magic numbers** — No inline `70`, `20`, risk weights. Policy lives in database tables.
 - **Ad hoc status mutation** — No direct `.status` updates without transition validation + history.
 - **Silent failure** — No swallowed exceptions or hidden fallbacks.
 - **Fat controllers** — No scoring, transitions, or authorization inside handlers.
-- **Framework-coupled domain logic** — Core rules must stay portable, testable.
+- **Framework-coupled domain logic** — Core scoring rules stay pure and testable.
 - **Implicit defaults** — If a rule matters, declare it explicitly.
 
 ---
@@ -145,46 +126,30 @@ Every feature must answer clearly:
 - Where is authorization enforced?
 - Where is input validated?
 - Where is the audit trail created?
-- Where is the constant declared?
 
 **If answer is "everywhere" or "it depends," the design is wrong.**
 
 ---
 
-## Definition of Done
+## Backend Module Map
 
-Complete when:
+- `src/auth` — JWT strategy, login/register, token issue/verify.
+- `src/businesses` — Domain core: status transitions, reference data, identifier validation, notifications.
+- `src/risk-scoring` — Isolated risk assessment: policy loading, scoring engine, score persistence.
+- `src/documents` — Upload, retrieval, triggers risk recalculation on new uploads.
+- `src/notifications` — SSE event stream for real-time frontend updates.
+- `src/common` — Enums, entities, guards, decorators, shared utilities.
+- `src/database` — TypeORM config, migrations, seed data.
 
-- ✅ Rule is **centralized** (one place, not scattered)
-- ✅ Inputs are **validated** (DTOs, pipes, guards)
-- ✅ Authorization is **explicit** (guards/policies, not inline)
-- ✅ Side effects are **predictable** (deterministic scoring, transactional history)
-- ✅ Logs/history are **traceable** (structured, machine-readable)
-- ✅ Constants are **declared, not invented** inline
-- ✅ Tests cover business-critical paths
-- ✅ Frontend remains a client, not a source of truth
-
----
-
-## Quick Refs
-
-**Backend:**
-
-- `src/auth`: JWT, user lookup, token issue/verify.
-- `src/businesses`: Domain core — status, risk, documents, notifications.
-- `src/documents`: Upload, archive, trigger risk recalc.
-- `src/common`: Enums, guards, decorators, shared utilities.
-
-**Frontend:**
+## Frontend
 
 - Never implement compliance logic.
-- Consume typed API contracts from `lib/types.ts`.
 - All state truth from backend API.
 - No optimistic state changes; wait for backend confirmation.
 
-**Local Dev:**
+## Local Dev
 
-- `docker compose up --build` — PostgreSQL, backend, validation services.
+- `docker compose up --build` — PostgreSQL, backend, validation microservice.
 - `cd backend && npm run start:dev` — Backend in watch mode.
 - `cd backend && npm test` — Run tests.
 - `cd frontend && npm run dev` — Next.js dev server.

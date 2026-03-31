@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { BusinessRiskService } from '../businesses/risk/business-risk.service';
+import { RiskAssessmentService } from '../risk-scoring';
 import { Document, Business } from '../common/entities';
 import { DocumentType } from '../common/enums';
 
@@ -10,7 +10,7 @@ export class DocumentsService {
   constructor(
     @InjectRepository(Document) private documentRepo: Repository<Document>,
     @InjectRepository(Business) private businessRepo: Repository<Business>,
-    private readonly businessRiskService: BusinessRiskService,
+    private readonly riskAssessmentService: RiskAssessmentService,
   ) {}
 
   private async assertActiveBusinessExists(businessId: string): Promise<void> {
@@ -40,7 +40,7 @@ export class DocumentsService {
     });
 
     const savedDocument = await this.documentRepo.save(doc);
-    await this.businessRiskService.refreshBusinessRiskScore(businessId);
+    await this.riskAssessmentService.refreshBusinessRiskScore(businessId);
 
     return savedDocument;
   }

@@ -12,7 +12,7 @@ import {
   RiskSettingKey,
 } from '../common/entities';
 import { DocumentType } from '../common/enums';
-import { REQUIRED_DOCUMENT_TYPES } from './risk/business-risk.policy';
+import { REQUIRED_DOCUMENT_TYPES } from '../risk-scoring';
 
 export interface BusinessReferenceData {
   countries: Array<{
@@ -30,14 +30,6 @@ export interface BusinessReferenceData {
     manualReviewThreshold: number;
   };
   requiredDocumentTypes: DocumentType[];
-}
-
-export interface BusinessRiskPolicySnapshot {
-  countryRiskPointsByCode: ReadonlyMap<string, number>;
-  industryRiskPointsByKey: ReadonlyMap<string, number>;
-  documentationRiskPoints: number;
-  manualReviewThreshold: number;
-  requiredDocumentTypes: readonly DocumentType[];
 }
 
 @Injectable()
@@ -76,28 +68,6 @@ export class BusinessReferenceDataService {
         ),
       },
       requiredDocumentTypes: [...REQUIRED_DOCUMENT_TYPES],
-    };
-  }
-
-  async getRiskPolicySnapshot(): Promise<BusinessRiskPolicySnapshot> {
-    const [countries, industries, settings] = await this.loadPolicyData();
-
-    return {
-      countryRiskPointsByCode: new Map(
-        countries.map((country) => [country.code, country.riskPoints]),
-      ),
-      industryRiskPointsByKey: new Map(
-        industries.map((industry) => [industry.key, industry.riskPoints]),
-      ),
-      documentationRiskPoints: this.getRequiredSetting(
-        settings,
-        RiskSettingKey.DOCUMENTATION_RISK_POINTS,
-      ),
-      manualReviewThreshold: this.getRequiredSetting(
-        settings,
-        RiskSettingKey.MANUAL_REVIEW_THRESHOLD,
-      ),
-      requiredDocumentTypes: REQUIRED_DOCUMENT_TYPES,
     };
   }
 

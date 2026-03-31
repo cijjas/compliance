@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Document, Business } from '../common/entities';
-import { BusinessesModule } from '../businesses/businesses.module';
+import { RiskScoringModule } from '../risk-scoring';
 import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Document, Business]), BusinessesModule],
+  imports: [TypeOrmModule.forFeature([Document, Business]), RiskScoringModule],
   controllers: [DocumentsController],
   providers: [DocumentsService],
 })

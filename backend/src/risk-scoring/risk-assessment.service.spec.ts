@@ -1,39 +1,51 @@
 import { Repository } from 'typeorm';
-import { Business } from '../../common/entities';
-import { DocumentType } from '../../common/enums';
-import { BusinessReferenceDataService } from '../reference-data.service';
-import { BusinessRiskService } from './business-risk.service';
+import {
+  Business,
+  CountryPolicy,
+  IndustryPolicy,
+  RiskSetting,
+  RiskSettingKey,
+} from '../common/entities';
+import { DocumentType } from '../common/enums';
+import { RiskAssessmentService } from './risk-assessment.service';
 
-describe('BusinessRiskService', () => {
-  let service: BusinessRiskService;
-  let referenceDataService: jest.Mocked<
-    Pick<BusinessReferenceDataService, 'getRiskPolicySnapshot'>
-  >;
+describe('RiskAssessmentService', () => {
+  let service: RiskAssessmentService;
+  let countryPolicyRepo: jest.Mocked<Pick<Repository<CountryPolicy>, 'find'>>;
+  let industryPolicyRepo: jest.Mocked<Pick<Repository<IndustryPolicy>, 'find'>>;
+  let riskSettingRepo: jest.Mocked<Pick<Repository<RiskSetting>, 'find'>>;
 
   beforeEach(() => {
-    referenceDataService = {
-      getRiskPolicySnapshot: jest.fn().mockResolvedValue({
-        countryRiskPointsByCode: new Map([
-          ['AR', 0],
-          ['CU', 30],
-        ]),
-        industryRiskPointsByKey: new Map([
-          ['technology', 0],
-          ['casino', 25],
-        ]),
-        documentationRiskPoints: 20,
-        manualReviewThreshold: 70,
-        requiredDocumentTypes: [
-          DocumentType.FISCAL_CERTIFICATE,
-          DocumentType.REGISTRATION_PROOF,
-          DocumentType.INSURANCE_POLICY,
-        ],
-      }),
+    countryPolicyRepo = {
+      find: jest.fn().mockResolvedValue([
+        { code: 'AR', riskPoints: 0 },
+        { code: 'CU', riskPoints: 30 },
+      ]),
+    };
+    industryPolicyRepo = {
+      find: jest.fn().mockResolvedValue([
+        { key: 'technology', riskPoints: 0 },
+        { key: 'casino', riskPoints: 25 },
+      ]),
+    };
+    riskSettingRepo = {
+      find: jest.fn().mockResolvedValue([
+        {
+          key: RiskSettingKey.DOCUMENTATION_RISK_POINTS,
+          numericValue: 20,
+        },
+        {
+          key: RiskSettingKey.MANUAL_REVIEW_THRESHOLD,
+          numericValue: 70,
+        },
+      ]),
     };
 
-    service = new BusinessRiskService(
+    service = new RiskAssessmentService(
       {} as Repository<Business>,
-      referenceDataService as unknown as BusinessReferenceDataService,
+      countryPolicyRepo as unknown as Repository<CountryPolicy>,
+      industryPolicyRepo as unknown as Repository<IndustryPolicy>,
+      riskSettingRepo as unknown as Repository<RiskSetting>,
     );
   });
 
@@ -102,17 +114,12 @@ describe('BusinessRiskService', () => {
   });
 
   it('does not trigger manual review when the score lands exactly on the threshold', async () => {
-    referenceDataService.getRiskPolicySnapshot.mockResolvedValue({
-      countryRiskPointsByCode: new Map([['VE', 45]]),
-      industryRiskPointsByKey: new Map([['security', 25]]),
-      documentationRiskPoints: 20,
-      manualReviewThreshold: 70,
-      requiredDocumentTypes: [
-        DocumentType.FISCAL_CERTIFICATE,
-        DocumentType.REGISTRATION_PROOF,
-        DocumentType.INSURANCE_POLICY,
-      ],
-    });
+    countryPolicyRepo.find.mockResolvedValue([
+      { code: 'VE', riskPoints: 45 } as CountryPolicy,
+    ]);
+    industryPolicyRepo.find.mockResolvedValue([
+      { key: 'security', riskPoints: 25 } as IndustryPolicy,
+    ]);
 
     const assessment = await service.calculateAssessment({
       country: 'VE',

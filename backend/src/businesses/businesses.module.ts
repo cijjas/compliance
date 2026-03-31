@@ -9,8 +9,8 @@ import {
   StatusHistory,
 } from '../common/entities';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { RiskScoringModule } from '../risk-scoring';
 import { BusinessIdentifierValidationService } from './validation/business-identifier-validation.service';
-import { BusinessRiskService } from './risk/business-risk.service';
 import { BusinessStatusNotifierService } from './notifier/business-status-notifier.service';
 import { BusinessesController } from './businesses.controller';
 import { BusinessesService } from './businesses.service';
@@ -26,19 +26,18 @@ import { BusinessReferenceDataService } from './reference-data.service';
       RiskSetting,
     ]),
     NotificationsModule,
+    RiskScoringModule,
     HttpModule,
   ],
   controllers: [BusinessesController],
   providers: [
     BusinessesService,
     BusinessReferenceDataService,
-    BusinessRiskService,
     BusinessIdentifierValidationService,
     BusinessStatusNotifierService,
   ],
   exports: [
     BusinessesService,
-    BusinessRiskService,
     BusinessReferenceDataService,
   ],
 })

@@ -1,13 +1,20 @@
-import { DocumentType } from '../../common/enums';
-import type { BusinessRiskPolicySnapshot } from '../reference-data.service';
+import { DocumentType } from '../common/enums';
 
-export interface CalculateBusinessRiskInput {
+export interface RiskPolicySnapshot {
+  countryRiskPointsByCode: ReadonlyMap<string, number>;
+  industryRiskPointsByKey: ReadonlyMap<string, number>;
+  documentationRiskPoints: number;
+  manualReviewThreshold: number;
+  requiredDocumentTypes: readonly DocumentType[];
+}
+
+export interface RiskInput {
   country: string;
   industry: string;
   documentTypes: DocumentType[];
 }
 
-export interface BusinessRiskAssessment {
+export interface RiskAssessment {
   score: number;
   requiresManualReview: boolean;
   breakdown: {
@@ -24,10 +31,10 @@ export const REQUIRED_DOCUMENT_TYPES: readonly DocumentType[] = [
   DocumentType.INSURANCE_POLICY,
 ];
 
-export function calculateBusinessRiskAssessment(
-  input: CalculateBusinessRiskInput,
-  policy: BusinessRiskPolicySnapshot,
-): BusinessRiskAssessment {
+export function calculateRiskAssessment(
+  input: RiskInput,
+  policy: RiskPolicySnapshot,
+): RiskAssessment {
   const normalizedCountry = input.country.toUpperCase();
   const normalizedIndustry = input.industry.trim().toLowerCase();
   const missingDocumentTypes = policy.requiredDocumentTypes.filter(

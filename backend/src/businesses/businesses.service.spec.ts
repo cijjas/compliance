@@ -7,8 +7,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Business } from '../common/entities';
 import { BusinessStatus } from '../common/enums';
 import { BusinessIdentifierValidationService } from './validation/business-identifier-validation.service';
-import { BusinessRiskService } from './risk/business-risk.service';
-import { BusinessRiskAssessment } from './risk/business-risk.policy';
+import { RiskAssessmentService, RiskAssessment } from '../risk-scoring';
 import { BusinessStatusNotifierService } from './notifier/business-status-notifier.service';
 import {
   BusinessReferenceData,
@@ -43,9 +42,9 @@ describe('BusinessesService', () => {
     >;
     createQueryBuilder: jest.Mock;
   };
-  let riskService: jest.Mocked<
+  let riskAssessmentService: jest.Mocked<
     Pick<
-      BusinessRiskService,
+      RiskAssessmentService,
       'refreshBusinessRiskScore' | 'calculateAssessment'
     >
   >;
@@ -82,7 +81,7 @@ describe('BusinessesService', () => {
       >,
       createQueryBuilder: jest.fn(),
     };
-    riskService = {
+    riskAssessmentService = {
       refreshBusinessRiskScore: jest.fn(),
       calculateAssessment: jest.fn(),
     };
@@ -114,10 +113,91 @@ describe('BusinessesService', () => {
       businessRepo as unknown as Repository<Business>,
       dataSource as unknown as DataSource,
       referenceDataService as unknown as BusinessReferenceDataService,
-      riskService as unknown as BusinessRiskService,
+      riskAssessmentService as unknown as RiskAssessmentService,
       identifierValidationService as unknown as BusinessIdentifierValidationService,
       notifier as unknown as BusinessStatusNotifierService,
     );
+  });
+
+  describe('checkTaxIdentifier', () => {
+    it('returns available when no duplicate exists and format is valid', async () => {
+      referenceDataService.assertActiveCountry = jest
+        .fn()
+        .mockResolvedValue({ code: 'AR', name: 'Argentina' });
+      businessRepo.findOne.mockResolvedValue(null);
+      identifierValidationService.validate.mockResolvedValue({
+        valid: true,
+        country: 'AR',
+        format: '11 digits (for example 20-12345678-6)',
+      });
+
+      const result = await service.checkTaxIdentifier('20-12345678-9', 'AR');
+
+      expect(result).toEqual({ available: true, valid: true });
+      expect(referenceDataService.assertActiveCountry).toHaveBeenCalledWith(
+        'AR',
+      );
+      expect(identifierValidationService.validate).toHaveBeenCalledWith(
+        '20-12345678-9',
+        'AR',
+      );
+    });
+
+    it('returns unavailable when the identifier already belongs to an active business', async () => {
+      referenceDataService.assertActiveCountry = jest
+        .fn()
+        .mockResolvedValue({ code: 'AR', name: 'Argentina' });
+      businessRepo.findOne.mockResolvedValue({
+        id: 'existing',
+        deletedAt: null,
+      } as Business);
+
+      const result = await service.checkTaxIdentifier('20-12345678-9', 'AR');
+
+      expect(result).toEqual({
+        available: false,
+        valid: true,
+        message: 'Business with this tax identifier already exists',
+      });
+      expect(identifierValidationService.validate).not.toHaveBeenCalled();
+    });
+
+    it('returns unavailable with an archive message when the identifier belongs to a deleted business', async () => {
+      referenceDataService.assertActiveCountry = jest
+        .fn()
+        .mockResolvedValue({ code: 'AR', name: 'Argentina' });
+      businessRepo.findOne.mockResolvedValue({
+        id: 'archived',
+        deletedAt: new Date(),
+      } as Business);
+
+      const result = await service.checkTaxIdentifier('20-12345678-9', 'AR');
+
+      expect(result.available).toBe(false);
+      expect(result.valid).toBe(true);
+      expect(result.message).toContain('archived');
+    });
+
+    it('returns invalid when the format validation fails', async () => {
+      referenceDataService.assertActiveCountry = jest
+        .fn()
+        .mockResolvedValue({ code: 'AR', name: 'Argentina' });
+      businessRepo.findOne.mockResolvedValue(null);
+      identifierValidationService.validate.mockResolvedValue({
+        valid: false,
+        country: 'AR',
+        format: '11 digits (for example 20-12345678-6)',
+        failureReason: 'invalid_format',
+      });
+
+      const result = await service.checkTaxIdentifier('bad-id', 'AR');
+
+      expect(result).toEqual({
+        available: false,
+        valid: false,
+        message: expect.stringContaining('Argentina tax ID'),
+      });
+    });
   });
 
   it('creates a business, records initial history, and refreshes the risk score', async () => {
@@ -182,7 +262,7 @@ describe('BusinessesService', () => {
       reason: 'Business created',
       changedById: 'user-1',
     });
-    expect(riskService.refreshBusinessRiskScore).toHaveBeenCalledWith(
+    expect(riskAssessmentService.refreshBusinessRiskScore).toHaveBeenCalledWith(
       savedBusiness.id,
     );
   });
@@ -235,7 +315,7 @@ describe('BusinessesService', () => {
       'AR',
     );
     expect(dataSource.transaction).not.toHaveBeenCalled();
-    expect(riskService.refreshBusinessRiskScore).not.toHaveBeenCalled();
+    expect(riskAssessmentService.refreshBusinessRiskScore).not.toHaveBeenCalled();
   });
 
   it('explains when a tax identifier has the right format but fails the verification digit', async () => {
@@ -259,7 +339,7 @@ describe('BusinessesService', () => {
     );
 
     expect(dataSource.transaction).not.toHaveBeenCalled();
-    expect(riskService.refreshBusinessRiskScore).not.toHaveBeenCalled();
+    expect(riskAssessmentService.refreshBusinessRiskScore).not.toHaveBeenCalled();
   });
 
   it('searches by company name, business id, and tax identifier', async () => {
@@ -308,7 +388,7 @@ describe('BusinessesService', () => {
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
     expect(dataSource.transaction).not.toHaveBeenCalled();
-    expect(riskService.refreshBusinessRiskScore).not.toHaveBeenCalled();
+    expect(riskAssessmentService.refreshBusinessRiskScore).not.toHaveBeenCalled();
   });
 
   it('updates status inside a transaction and emits a structured notification', async () => {
@@ -461,7 +541,7 @@ describe('BusinessesService', () => {
   });
 
   it('returns a risk preview using the centralized policy', async () => {
-    const assessment: BusinessRiskAssessment = {
+    const assessment: RiskAssessment = {
       score: 20,
       requiresManualReview: false,
       breakdown: {
@@ -471,7 +551,7 @@ describe('BusinessesService', () => {
         missingDocumentTypes: [],
       },
     };
-    riskService.calculateAssessment.mockResolvedValue(assessment);
+    riskAssessmentService.calculateAssessment.mockResolvedValue(assessment);
 
     const dto: PreviewRiskDto = {
       country: 'AR',
@@ -483,7 +563,7 @@ describe('BusinessesService', () => {
     expect(
       referenceDataService.assertSupportedBusinessProfile,
     ).toHaveBeenCalledWith(dto.country, dto.industry);
-    expect(riskService.calculateAssessment).toHaveBeenCalledWith(dto);
+    expect(riskAssessmentService.calculateAssessment).toHaveBeenCalledWith(dto);
   });
 
   it('returns backend-owned compliance reference data', async () => {

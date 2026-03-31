@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { Repository } from 'typeorm';
-import { BusinessRiskService } from '../businesses/risk/business-risk.service';
+import { RiskAssessmentService } from '../risk-scoring';
 import { Business, Document } from '../common/entities';
 import { DocumentType } from '../common/enums';
 import { DocumentsService } from './documents.service';
@@ -11,8 +11,8 @@ describe('DocumentsService', () => {
     Pick<Repository<Document>, 'create' | 'save' | 'findOne' | 'find'>
   >;
   let businessRepo: jest.Mocked<Pick<Repository<Business>, 'findOne'>>;
-  let riskService: jest.Mocked<
-    Pick<BusinessRiskService, 'refreshBusinessRiskScore'>
+  let riskAssessmentService: jest.Mocked<
+    Pick<RiskAssessmentService, 'refreshBusinessRiskScore'>
   >;
 
   beforeEach(() => {
@@ -25,14 +25,14 @@ describe('DocumentsService', () => {
     businessRepo = {
       findOne: jest.fn(),
     };
-    riskService = {
+    riskAssessmentService = {
       refreshBusinessRiskScore: jest.fn(),
     };
 
     service = new DocumentsService(
       documentRepo as unknown as Repository<Document>,
       businessRepo as unknown as Repository<Business>,
-      riskService as unknown as BusinessRiskService,
+      riskAssessmentService as unknown as RiskAssessmentService,
     );
   });
 
@@ -72,7 +72,7 @@ describe('DocumentsService', () => {
       mimeType: file.mimetype,
       fileSize: file.size,
     });
-    expect(riskService.refreshBusinessRiskScore).toHaveBeenCalledWith(
+    expect(riskAssessmentService.refreshBusinessRiskScore).toHaveBeenCalledWith(
       'business-1',
     );
   });
@@ -94,7 +94,7 @@ describe('DocumentsService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
 
     expect(documentRepo.save).not.toHaveBeenCalled();
-    expect(riskService.refreshBusinessRiskScore).not.toHaveBeenCalled();
+    expect(riskAssessmentService.refreshBusinessRiskScore).not.toHaveBeenCalled();
   });
 
   it('findOneForBusiness returns the document when it exists', async () => {

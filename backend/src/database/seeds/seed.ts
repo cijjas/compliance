@@ -16,8 +16,8 @@ import { BusinessStatus } from '../../common/enums/business-status.enum';
 import { DocumentType } from '../../common/enums/document-type.enum';
 import {
   REQUIRED_DOCUMENT_TYPES,
-  calculateBusinessRiskAssessment,
-} from '../../businesses/risk/business-risk.policy';
+  calculateRiskAssessment,
+} from '../../risk-scoring';
 import dataSourceConfig from '../data-source';
 
 const COUNTRIES = [
@@ -212,7 +212,7 @@ async function seed() {
       DocumentType.INSURANCE_POLICY,
     ];
     const docsToAdd = docTypes.slice(0, 1 + (i % 3));
-    const riskAssessment = calculateBusinessRiskAssessment(
+    const riskAssessment = calculateRiskAssessment(
       {
         country,
         industry,

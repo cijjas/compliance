@@ -13,7 +13,7 @@ import {
   getBusinessStatusTransitionErrorMessage,
 } from './business-status-policy';
 import { BusinessIdentifierValidationService } from './validation/business-identifier-validation.service';
-import { BusinessRiskService } from './risk/business-risk.service';
+import { RiskAssessmentService } from '../risk-scoring';
 import { BusinessStatusNotifierService } from './notifier/business-status-notifier.service';
 import { CreateBusinessDto } from './dto/create-business.dto';
 import { DeleteBusinessDto } from './dto/delete-business.dto';
@@ -32,7 +32,7 @@ export class BusinessesService {
     private readonly businessRepo: Repository<Business>,
     private readonly dataSource: DataSource,
     private readonly businessReferenceDataService: BusinessReferenceDataService,
-    private readonly businessRiskService: BusinessRiskService,
+    private readonly riskAssessmentService: RiskAssessmentService,
     private readonly businessIdentifierValidationService: BusinessIdentifierValidationService,
     private readonly businessStatusNotifierService: BusinessStatusNotifierService,
   ) {}
@@ -155,7 +155,7 @@ export class BusinessesService {
       return savedBusiness;
     });
 
-    await this.businessRiskService.refreshBusinessRiskScore(business.id);
+    await this.riskAssessmentService.refreshBusinessRiskScore(business.id);
     return this.findOne(business.id);
   }
 
@@ -326,7 +326,7 @@ export class BusinessesService {
 
   async getRiskScore(id: string) {
     const assessment =
-      await this.businessRiskService.refreshBusinessRiskScore(id);
+      await this.riskAssessmentService.refreshBusinessRiskScore(id);
 
     return {
       businessId: id,
@@ -341,7 +341,7 @@ export class BusinessesService {
         dto.industry,
       );
 
-    return this.businessRiskService.calculateAssessment({
+    return this.riskAssessmentService.calculateAssessment({
       country: country.code,
       industry: industry.key,
       documentTypes: dto.documentTypes,

@@ -213,7 +213,25 @@ Postman, and any process on the machine, which weakens the intended trust bounda
 misuse. Keeping only `expose: 3001` allows the backend to continue calling `http://format-validation:3001`
 over Docker service discovery while removing direct host access to the microservice.
 
-## 16. How to structure AGENTS.md for agent guidance
+## 16. Whether risk scoring should be a separate microservice or an internal module
+
+Question: Should the risk-scoring engine be deployed as a standalone microservice, or kept as a separate
+module/domain service inside the main backend?
+
+Decision: Keep risk scoring as a separate NestJS module inside the main backend, cleanly isolated behind an
+interface so it can be extracted later if needed. The module persists the score result, individual scoring
+factors, and the rule version used at computation time for full auditability.
+
+Reasoning: The scoring engine is tightly coupled to business and document data that already lives in the main
+database. Splitting it into a separate microservice would add network hops, data synchronization complexity,
+and deployment overhead without a clear operational benefit at this scale. A well-defined module boundary
+achieves the same separation of concerns: the scoring logic is testable in isolation, the interface is narrow
+enough to extract behind an HTTP boundary later, and the backend retains transactional consistency when
+persisting scores alongside the business record. Storing the full assessment breakdown (score, contributing
+factors, and the policy/rule version) ensures that every historical score can be explained and reproduced even
+after policy changes, which is the core auditability requirement for a compliance system.
+
+## 17. How to structure AGENTS.md for agent guidance
 
 Question: How should AGENTS.md be organized to help agents (and new developers) understand the project without
 bloating the system prompt?
