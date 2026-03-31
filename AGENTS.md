@@ -1,107 +1,190 @@
 # AGENTS
 
-## Purpose
+## Handoff Essentials
 
-This repository contains the MVP for an internal company-onboarding portal:
+This is a **compliance-grade onboarding portal**. Not a typical CRUD app.
 
-- `frontend/`: Next.js dashboard and auth UI.
-- `backend/`: NestJS REST API, JWT auth, business onboarding flows, document uploads, and risk scoring.
-- `microservice-format-validation/`: small NestJS service used by the backend to validate fiscal identifier formats.
-- `docker-compose.yml`: local orchestration for Postgres plus both services.
+- **Backend owns all decisions** — risk scoring, state transitions, auth, notifications. Frontend is UI only.
+- **Rules must be explicit and centralized** — no magic numbers, no scattered logic.
+- **Audit trails are immutable** — `status_history` is append-only, never modified.
+- **Same input = same output** — risk scoring is deterministic.
+- **Authorization is in guards, not inline** — role checks happen at the route level, not buried in business
+  logic.
 
-## Backend Map
+---
 
-- `backend/src/auth`: JWT login/register/logout and user lookup.
-- `backend/src/businesses`: company creation, listing, detail, status transitions, external identifier validation, notifications, and risk score orchestration.
-- `backend/src/documents`: document uploads and document listing.
-- `backend/src/common`: shared enums, entities, guards, decorators, and small utilities.
-- `backend/src/database`: TypeORM datasource, migrations, and seed script.
+## Required Patterns
 
-## Business Flow
+### 1. **Centralized Compliance Logic**
 
-1. `POST /api/businesses` validates input, checks duplicate tax ID, asks the format-validation microservice to validate the identifier, creates the business, records the initial status history entry, and refreshes the risk score.
-2. `POST /api/businesses/:businessId/documents` stores a document and refreshes risk so missing-document penalties stay current.
-3. `PATCH /api/businesses/:id/status` updates status and appends to `status_history` inside a transaction, then emits a structured notification log.
+- Risk scoring: one service method, never scattered.
+- Status transitions: modeled explicitly, not ad hoc.
+- Document completeness: one reusable function.
+- Authorization: in guards/policies, never inline role checks.
 
-## Data Model
+### 2. **DTO-First Boundaries**
 
-```mermaid
-erDiagram
-  users ||--o{ businesses : creates
-  users ||--o{ status_history : changes
-  businesses ||--o{ documents : has
-  businesses ||--o{ status_history : tracks
+- All input through class-validator DTOs.
+- Pipes validate and transform before business logic.
+- No `req.body` directly; always typed DTOs.
 
-  users {
-    uuid id PK
-    varchar email
-    varchar password
-    enum role
-    boolean isActive
-  }
+### 3. **Constants & Enums (Centralized)**
 
-  businesses {
-    uuid id PK
-    varchar name
-    varchar tax_identifier UK
-    varchar country
-    varchar industry
-    enum status
-    int risk_score
-    boolean identifier_validated
-    uuid created_by_id FK
-  }
+**`backend/src/common/enums/`:**
 
-  documents {
-    uuid id PK
-    uuid business_id FK
-    enum type
-    varchar file_name
-    varchar file_path
-    varchar mime_type
-    int file_size
-  }
+- `BusinessStatus` (PENDING, UNDER_REVIEW, APPROVED, REJECTED, CLOSED)
+- `UserRole` (ADMIN, VIEWER)
+- `DocumentType` (INCORPORATION_CERT, TAX_CERT, etc.)
+- `RiskLevel` (LOW, MEDIUM, HIGH, CRITICAL)
 
-  status_history {
-    uuid id PK
-    uuid business_id FK
-    enum previous_status
-    enum new_status
-    text reason
-    uuid changed_by_id FK
-  }
+**`backend/src/common/constants/`:**
+
+- `RISK_THRESHOLDS` (MANUAL_REVIEW: 70, CRITICAL: 85)
+- `HIGH_RISK_INDUSTRIES`, `HIGH_RISK_COUNTRIES`
+- `MIN_DOCUMENTS_FOR_APPROVAL`
+- `RISK_WEIGHTS` (per factor)
+
+**Rule**: Never hardcode `70`, `20`, or `'APPROVED'` inline. Always reference the constant.
+
+### 4. **Explicit State Transition Rules**
+
+```typescript
+const VALID_TRANSITIONS = {
+  PENDING: ["UNDER_REVIEW", "REJECTED"],
+  UNDER_REVIEW: ["APPROVED", "REJECTED", "PENDING"],
+  APPROVED: ["CLOSED"],
+  REJECTED: ["CLOSED"],
+  CLOSED: [],
+};
 ```
 
-## High-Value Commands
+Enforce in a dedicated service method before any update.
 
-- `cd backend && npm run start:dev`
-- `cd backend && npm run migration:run`
-- `cd backend && npm run seed`
-- `cd backend && npm test`
-- `cd backend && npm run lint`
-- `docker compose up --build`
+### 5. **Role-Based Authorization via Guards**
 
-## Frontend Map
+- `JwtAuthGuard`: validates token, attaches user.
+- `AdminGuard`: enforces admin-only at route level.
+- `PolicyServices`: encapsulate complex authorization.
+- No inline role checks inside handlers.
 
-- `frontend/src/app/login`: Login page (public).
-- `frontend/src/app/(dashboard)`: Authenticated dashboard shell with sidebar and topbar.
-- `frontend/src/app/(dashboard)/page.tsx`: Companies list with filters, table, pagination, and stats.
-- `frontend/src/components/ui/`: shadcn primitives (button, badge, card, input, table, select, etc.).
-- `frontend/src/lib/api.ts`: Fetch-based API client pointing at `NEXT_PUBLIC_API_URL`.
-- `frontend/src/lib/auth.tsx`: React context for JWT token management and auth state.
-- `frontend/src/lib/types.ts`: Shared TypeScript interfaces mirroring backend entities.
+### 6. **Structured Audit Logging**
 
-## Frontend Styling Rules
+- Status changes: append to `status_history` transactionally.
+- Risk score changes: log reason (which factor triggered recalc).
+- Authorization failures: log denial with context.
+- Format: structured JSON (timestamp, actor, action, before/after).
 
-- **Only shadcn components + Tailwind utility classes.** No custom CSS files, no CSS modules, no styled-components.
-- The only CSS file is `globals.css`, and it must only contain theme color variables (light/dark) and the base layer reset.
-- Use background color shifts to create visual boundaries between sections — never 1px solid borders for layout containment.
-- Fonts: Outfit for display/headlines (`font-display`), Inter for body/data (`font-sans`).
-- All status-related coloring uses the badge component with variant props, not inline color strings.
+### 7. **History by Default**
 
-## Guardrails
+- `status_history` is immutable; never update or delete.
+- Every status change inserts: `previous_status`, `new_status`, `reason`, `changed_by_id`, timestamp.
+- Query history to understand timeline; don't infer from `business.status` alone.
 
-- Prefer adding business logic to dedicated services instead of growing controllers or `BusinessesService`.
-- Keep authorization in guards/decorators, not inline role checks.
-- Normalize inputs in DTO transforms before they reach services.
-- If a change affects onboarding state or documents, make sure risk score recalculation still happens.
+### 8. **Deterministic Scoring**
+
+Same input → same output, always.
+
+```typescript
+function calculateRiskScore(business: Business, docs: Document[]): number {
+  let score = 0;
+  score += isMissingRequiredDocument(business, docs) ? 25 : 0;
+  score += isHighRiskIndustry(business.industry) ? 20 : 0;
+  score += isHighRiskCountry(business.country) ? 15 : 0;
+  score += !business.identifier_validated ? 15 : 0;
+  return Math.min(score, 100);
+}
+```
+
+### 9. **Thin Controllers**
+
+Controllers orchestrate, don't decide:
+
+- Accept request → Delegate to service → Return response.
+
+**Bad**: Scoring, transitions, risk logic inside handler. **Good**: Service owns domain; controller calls it.
+
+### 10. **Configuration over Literals**
+
+- API URLs, environment flags, microservice endpoints → `ConfigService`.
+- Business rule thresholds → centralized constants (never environment-dependent).
+
+### 11. **Testable Domain Services**
+
+Risk, transitions, validation must be independently testable.
+
+```typescript
+// Good: pure function
+function calculateRisk(business, documents): number { ... }
+
+// Bad: tightly coupled to DB/HTTP
+async function scoreAndPersist(id: string) { ... }
+```
+
+---
+
+## Anti-Patterns (Forbidden)
+
+- **Unsafe type casting** — No `as any`, unchecked casts bypassing DTO/schema.
+- **Duplicated business logic** — Risk, document, transition rules in multiple places.
+- **Inline authorization** — Role checks inside handlers instead of guards/policies.
+- **Business logic in Next.js** — Frontend must not become a second compliance engine.
+- **Magic numbers** — No inline `70`, `20`, risk weights. Use constants.
+- **Ad hoc status mutation** — No direct `.status` updates without transition validation + history.
+- **Silent failure** — No swallowed exceptions or hidden fallbacks.
+- **Fat controllers** — No scoring, transitions, or authorization inside handlers.
+- **Framework-coupled domain logic** — Core rules must stay portable, testable.
+- **Implicit defaults** — If a rule matters, declare it explicitly.
+
+---
+
+## Code Quality Checklist
+
+Every feature must answer clearly:
+
+- Where is the business rule?
+- Where is authorization enforced?
+- Where is input validated?
+- Where is the audit trail created?
+- Where is the constant declared?
+
+**If answer is "everywhere" or "it depends," the design is wrong.**
+
+---
+
+## Definition of Done
+
+Complete when:
+
+- ✅ Rule is **centralized** (one place, not scattered)
+- ✅ Inputs are **validated** (DTOs, pipes, guards)
+- ✅ Authorization is **explicit** (guards/policies, not inline)
+- ✅ Side effects are **predictable** (deterministic scoring, transactional history)
+- ✅ Logs/history are **traceable** (structured, machine-readable)
+- ✅ Constants are **declared, not invented** inline
+- ✅ Tests cover business-critical paths
+- ✅ Frontend remains a client, not a source of truth
+
+---
+
+## Quick Refs
+
+**Backend:**
+
+- `src/auth`: JWT, user lookup, token issue/verify.
+- `src/businesses`: Domain core — status, risk, documents, notifications.
+- `src/documents`: Upload, archive, trigger risk recalc.
+- `src/common`: Enums, guards, decorators, shared utilities.
+
+**Frontend:**
+
+- Never implement compliance logic.
+- Consume typed API contracts from `lib/types.ts`.
+- All state truth from backend API.
+- No optimistic state changes; wait for backend confirmation.
+
+**Local Dev:**
+
+- `docker compose up --build` — PostgreSQL, backend, validation services.
+- `cd backend && npm run start:dev` — Backend in watch mode.
+- `cd backend && npm test` — Run tests.
+- `cd frontend && npm run dev` — Next.js dev server.
