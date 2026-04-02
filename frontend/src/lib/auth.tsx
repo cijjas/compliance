@@ -135,6 +135,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(() => {
+    api.post("/auth/logout").catch(() => {});
     clearStoredAuthSession();
     router.push("/login");
   }, [router]);

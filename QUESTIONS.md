@@ -268,3 +268,68 @@ should already know how to write TypeScript or Next.js; what they need are the p
 compliance patterns, and architectural decisions that prevent common mistakes. Inspired by community
 discussion on minimal, focused AGENTS.md patterns—the goal is to be a reference card for project DNA, not a
 textbook.
+
+## 19. Document upload audit trail — who uploaded the file
+
+Question: The `documents` table tracks `created_at` but not who performed the upload. For a compliance
+system, is that sufficient?
+
+Decision: Every document now records an `uploaded_by_id` foreign key to the `users` table, set at upload time
+from the authenticated user's JWT.
+
+Reasoning: In a compliance onboarding workflow, knowing *when* evidence was submitted is only half the audit
+trail. Knowing *who* submitted it is equally important for accountability, internal reviews, and regulatory
+inquiries. Without this field, the system could not attribute a document to the analyst or operator who
+provided it. The column is nullable to gracefully handle edge cases (system-generated records, legacy data),
+but the controller always passes the current user.
+
+## 20. Risk score breakdown snapshots at evaluation time
+
+Question: The `businesses.risk_score` column stores the final numeric score, but not the individual factors
+that produced it. If policy tables change later, can the original assessment be reconstructed?
+
+Decision: Every risk score evaluation now persists a `risk_assessment_records` row that captures the full
+breakdown (country risk, industry risk, documentation risk, missing document types) along with a
+`policy_version` hash derived from the active policy tables at computation time.
+
+Reasoning: A compliance score that cannot be explained after the fact is not auditable. Storing only the total
+means that if country risk points or the documentation penalty change next quarter, historical scores become
+opaque — you know the result but not the reasoning. The snapshot table solves this by freezing the assessment
+at the moment it was computed. The `policy_version` is a truncated SHA-256 hash of the full policy state
+(country risk map, industry risk map, thresholds, required document types), so two assessments can be compared
+to determine whether they were evaluated under the same rulebook. This makes it possible to answer questions
+like "was this score calculated before or after we raised the crypto industry penalty?" without re-reading
+migration history.
+
+## 21. Document integrity and versioning fields
+
+Question: Documents have `file_path`, `mime_type`, and `file_size`, but no mechanism to verify file integrity
+over time or track re-uploads of the same document type.
+
+Decision: Documents now include:
+
+- `checksum`: SHA-256 hash of the file contents, computed at upload time.
+- `version`: Auto-incrementing integer scoped to `(business_id, document_type)`, so re-uploading a fiscal
+  certificate for the same business produces version 2, 3, etc.
+
+Reasoning: In a compliance evidence store, the ability to prove that a file has not been tampered with after
+submission is a basic integrity control. The SHA-256 checksum provides a verifiable fingerprint that can be
+checked against the stored file at any point. Versioning supports the common workflow where an analyst uploads
+an updated document (e.g. a corrected fiscal certificate) — the system preserves the full history of prior
+versions rather than silently overwriting them, which is important for audit continuity.
+
+## 22. Structured logging for document upload events
+
+Question: Status changes are logged as structured events and pushed through SSE. Should document uploads
+follow the same pattern?
+
+Decision: Yes. Every document upload now emits a structured `document.uploaded` log event that includes the
+document ID, business ID, business name, document type, file name, file size, SHA-256 checksum, version
+number, and uploader ID.
+
+Reasoning: Document uploads are audit-relevant events in a compliance onboarding system — they change the
+risk profile (by potentially removing the documentation penalty) and represent evidence submission. Logging
+them with the same structured format used for status changes ensures that operational monitoring, alerting, and
+audit log aggregation can treat both event types uniformly. Including the checksum and version in the log event
+means that integrity and lineage information is captured in the log stream as well as in the database, which
+supports forensic analysis even if database records are later modified.

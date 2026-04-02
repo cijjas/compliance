@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { firstValueFrom, of } from 'rxjs';
 import { BusinessStatus } from '../common/enums';
+import { Notification } from '../common/entities';
 import { NotificationsController } from './notifications.controller';
 import {
   NotificationsService,
@@ -10,12 +11,18 @@ import {
 describe('NotificationsController', () => {
   let controller: NotificationsController;
   let notificationsService: jest.Mocked<
-    Pick<NotificationsService, 'getStatusChanges$'>
+    Pick<
+      NotificationsService,
+      'getStatusChanges$' | 'findAll' | 'markRead' | 'markAllRead'
+    >
   >;
 
   beforeEach(async () => {
     notificationsService = {
       getStatusChanges$: jest.fn(),
+      findAll: jest.fn(),
+      markRead: jest.fn(),
+      markAllRead: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -43,5 +50,26 @@ describe('NotificationsController', () => {
       data: event,
     });
     expect(notificationsService.getStatusChanges$).toHaveBeenCalled();
+  });
+
+  it('findAll delegates to service', async () => {
+    const notifications = [{ id: 'n1' }] as Notification[];
+    notificationsService.findAll.mockResolvedValue(notifications);
+
+    await expect(controller.findAll()).resolves.toBe(notifications);
+  });
+
+  it('markRead delegates to service', async () => {
+    notificationsService.markRead.mockResolvedValue(undefined);
+
+    await controller.markRead('n1');
+    expect(notificationsService.markRead).toHaveBeenCalledWith('n1');
+  });
+
+  it('markAllRead delegates to service', async () => {
+    notificationsService.markAllRead.mockResolvedValue(undefined);
+
+    await controller.markAllRead();
+    expect(notificationsService.markAllRead).toHaveBeenCalled();
   });
 });

@@ -31,6 +31,7 @@ export interface Business {
   country: string;
   industry: string;
   status: BusinessStatus;
+  allowedNextStatuses?: BusinessStatus[];
   riskScore: number | null;
   identifierValidated: boolean;
   createdById: string | null;

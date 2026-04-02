@@ -27,7 +27,9 @@ import { UploadDocumentDto } from './dto/upload-document.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { UserRole } from '../common/enums';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 export const DOCUMENT_UPLOAD_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 
@@ -79,8 +81,9 @@ export class DocumentsController {
     )
     file: Express.Multer.File,
     @Body() dto: UploadDocumentDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.documentsService.upload(businessId, file, dto.type);
+    return this.documentsService.upload(businessId, file, dto.type, user.id);
   }
 
   @Get()

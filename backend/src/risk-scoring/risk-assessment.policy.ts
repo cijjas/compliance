@@ -6,6 +6,7 @@ export interface RiskPolicySnapshot {
   documentationRiskPoints: number;
   manualReviewThreshold: number;
   requiredDocumentTypes: readonly DocumentType[];
+  version: string;
 }
 
 export interface RiskInput {

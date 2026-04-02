@@ -10,6 +10,7 @@ import { Business, StatusHistory } from '../common/entities';
 import { BusinessStatus } from '../common/enums';
 import {
   canTransitionBusinessStatus,
+  getAllowedBusinessStatusTransitions,
   getBusinessStatusTransitionErrorMessage,
 } from './business-status-policy';
 import { BusinessIdentifierValidationService } from './validation/business-identifier-validation.service';
@@ -41,6 +42,14 @@ export class BusinessesService {
     return isArchived
       ? 'A business with this tax identifier already exists in archived records and cannot be recreated.'
       : 'Business with this tax identifier already exists';
+  }
+
+  private attachWorkflowMetadata<T extends Business>(
+    business: T,
+  ): T & { allowedNextStatuses: BusinessStatus[] } {
+    return Object.assign(business, {
+      allowedNextStatuses: [...getAllowedBusinessStatusTransitions(business.status)],
+    });
   }
 
   private async findBusinessIncludingDeleted(id: string): Promise<Business> {
@@ -194,7 +203,9 @@ export class BusinessesService {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async findOne(id: string): Promise<Business> {
+  async findOne(
+    id: string,
+  ): Promise<Business & { allowedNextStatuses: BusinessStatus[] }> {
     const business = await this.businessRepo
       .createQueryBuilder('b')
       .leftJoinAndSelect('b.documents', 'doc')
@@ -207,7 +218,8 @@ export class BusinessesService {
       .addOrderBy('doc.created_at', 'DESC')
       .getOne();
     if (!business) throw new NotFoundException('Business not found');
-    return business;
+
+    return this.attachWorkflowMetadata(business);
   }
 
   async updateStatus(
@@ -241,7 +253,7 @@ export class BusinessesService {
       });
     });
 
-    this.businessStatusNotifierService.notifyStatusChanged({
+    await this.businessStatusNotifierService.notifyStatusChanged({
       businessId: business.id,
       businessName: business.name,
       previousStatus,

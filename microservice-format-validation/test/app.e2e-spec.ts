@@ -42,6 +42,6 @@ describe('Validation microservice (e2e)', () => {
         format: '11 digits (for example 20-12345678-6)',
       }),
     );
-    expect(result.validatedAt).toEqual(expect.any(String));
+    expect(result.validatedAt).toEqual(expect.stringMatching(/.*/));
   });
 });

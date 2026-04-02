@@ -9,6 +9,7 @@ import {
 import { Exclude } from 'class-transformer';
 import { DocumentType } from '../enums';
 import { Business } from './business.entity';
+import { User } from './user.entity';
 
 @Entity('documents')
 export class Document {
@@ -39,6 +40,19 @@ export class Document {
 
   @Column({ name: 'file_size', type: 'int' })
   fileSize!: number;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: 'uploaded_by_id' })
+  uploadedBy!: User | null;
+
+  @Column({ name: 'uploaded_by_id', type: 'uuid', nullable: true })
+  uploadedById!: string | null;
+
+  @Column({ name: 'checksum', type: 'varchar', length: 64, nullable: true })
+  checksum!: string | null;
+
+  @Column({ name: 'version', type: 'int', default: 1 })
+  version!: number;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

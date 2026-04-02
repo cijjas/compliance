@@ -1,141 +1,439 @@
-# Complif - Company Onboarding Portal
+<p align="center">
+  <img src="docs/complif-logo.svg" alt="Complif" width="280" />
+</p>
 
-Portal for internal users to onboard companies, manage their documentation and compliance status.
+<p align="center">
+  <strong>Company Onboarding Portal</strong><br/>
+  Internal compliance tool for onboarding companies, managing documentation, and automating risk assessment.
+</p>
 
-## Architecture
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-16-black?logo=next.js" alt="Next.js" />
+  <img src="https://img.shields.io/badge/NestJS-11-ea2845?logo=nestjs" alt="NestJS" />
+  <img src="https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/Terraform-validated-7B42BC?logo=terraform&logoColor=white" alt="Terraform" />
+</p>
 
-```
-complif/
-├── frontend/                  # Next.js 15 + shadcn/ui + Tailwind CSS
-├── backend/                   # NestJS + TypeORM + PostgreSQL
-├── microservice-format-validation/  # Country-specific tax ID validator
-├── infrastructure/            # Terraform (AWS + Vercel)
-├── .github/workflows/         # CI pipeline
-└── docker-compose.yml
-```
+---
+
+## Screenshots
+
+<!-- TODO: Add screenshots of the dashboard, company detail, and registration form -->
+
+---
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js, React, shadcn/ui, Tailwind CSS, Lucide Icons |
-| Backend | NestJS, TypeORM, PostgreSQL, Passport JWT |
-| Microservice | NestJS (lightweight country-specific tax ID validator) |
-| Database | PostgreSQL 16 |
-| Containerization | Docker, Docker Compose |
-| Infrastructure | Terraform (AWS + Vercel) |
-| CI | GitHub Actions |
+| **Frontend** | Next.js 16, React 19, shadcn/ui, Tailwind CSS 4, Lucide Icons, Sonner |
+| **Backend** | NestJS 11, TypeORM, Passport JWT, Swagger/OpenAPI, nestjs-pino |
+| **Microservice** | NestJS (country-specific tax ID validator: AR/MX/BR) |
+| **Database** | PostgreSQL 16 with TypeORM migrations |
+| **Containerization** | Docker, Docker Compose |
+| **Infrastructure** | Terraform (AWS VPC + RDS + ECS + S3 + Vercel) |
+| **CI/CD** | GitHub Actions (build, test, deploy validation) |
+| **Testing** | Jest, Supertest |
 
-## Quick Start
+---
 
-### With Docker (recommended)
+## Architecture
+
+```
+┌─────────────┐     ┌──────────────────┐     ┌──────────────────────────┐
+│   Frontend   │────▶│   Backend API    │────▶│  Format Validation       │
+│  Next.js 16  │     │   NestJS 11      │     │  Microservice (NestJS)   │
+│  :3000       │     │   :8080          │     │  :3001 (internal)        │
+└─────────────┘     └────────┬─────────┘     └──────────────────────────┘
+                             │
+                             ▼
+                    ┌──────────────────┐
+                    │   PostgreSQL 16  │
+                    │   :5432          │
+                    └──────────────────┘
+```
+
+**Key design decisions:**
+
+- **Risk scoring** is a pure deterministic function: same input + same policy = same score, always. Policy lives in database tables, not code constants.
+- **Status transitions** are constrained (`pending -> in_review -> approved/rejected`) with mandatory reason on every change.
+- **Document uploads** produce SHA-256 checksums and auto-increment versions per `(business, document_type)`.
+- **Every risk assessment** is snapshotted with its full breakdown and a policy version hash for auditability.
+- **SSE (Server-Sent Events)** push real-time notifications to the frontend when status changes.
+- **Rate limiting** is enabled globally (100 requests/minute per client).
+- **Structured logging** via Pino with pretty-print in development.
+
+---
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
+- **Or** for local development: Node.js 20+ and PostgreSQL 16+
+
+---
+
+## Quick Start (Docker)
+
+### 1. Clone the repository
+
+```bash
+git clone <repo-url>
+cd complif
+```
+
+### 2. Create environment file
 
 ```bash
 cp .env.example .env
-docker compose up --build
-docker compose exec backend npm run seed
 ```
 
-Services will be available at:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8080/api
-- Swagger Docs: http://localhost:8080/api/docs
-- Format Validation: http://localhost:3001
+The defaults work out of the box. For production, change `JWT_SECRET`.
 
-The extra `seed` step loads the default users plus sample companies required by the challenge.
-
-### Local Development
-
-**Prerequisites:** Node.js 20+, PostgreSQL 16+
+### 3. Build and start all services
 
 ```bash
-# 1. Start PostgreSQL and create the database
-createdb complif
+docker compose up --build
+```
 
-# 2. Setup the format-validation microservice
+This starts 4 services:
+- **postgres** — PostgreSQL 16 database with health checks
+- **format-validation** — Tax ID validation microservice (internal only, not exposed to host)
+- **backend** — NestJS API with auto-running migrations
+- **frontend** — Next.js application
+
+### 4. Seed the database
+
+Once all services are running (wait for the backend to log `Nest application successfully started`):
+
+```bash
+docker compose exec backend npm run seed:prod
+```
+
+This creates:
+- 2 users (admin + viewer)
+- 25 sample companies across different countries, industries, and statuses
+- Documents, status history, and risk assessments for each company
+
+### 5. Open the application
+
+| Service | URL |
+|---------|-----|
+| **Frontend** | [http://localhost:3000](http://localhost:3000) |
+| **Backend API** | [http://localhost:8080/api](http://localhost:8080/api) |
+| **Swagger Docs** | [http://localhost:8080/api/docs](http://localhost:8080/api/docs) |
+
+### 6. Log in
+
+| Email | Password | Role | Permissions |
+|-------|----------|------|-------------|
+| `admin@complif.com` | `admin123` | Admin | Full access: create companies, change statuses, upload documents |
+| `viewer@complif.com` | `viewer123` | Viewer | Read-only: view companies, documents, and risk scores |
+
+### Stopping the services
+
+```bash
+docker compose down
+```
+
+To also remove the database volume (full reset):
+
+```bash
+docker compose down -v
+```
+
+---
+
+## Local Development (without Docker)
+
+### 1. Start PostgreSQL and create the database
+
+```bash
+createdb complif
+```
+
+### 2. Start the format-validation microservice
+
+```bash
 cd microservice-format-validation
 cp .env.example .env
 npm install
-npm run start:dev
+npm run start:dev          # runs on :3001
+```
 
-# 3. Setup backend
+### 3. Start the backend
+
+```bash
 cd backend
 cp .env.example .env
 npm install
-npm run migration:run
-npm run seed
-npm run start:dev
+npm run migration:run      # apply all migrations
+npm run seed               # seed sample data
+npm run start:dev          # runs on :8080
+```
 
-# 4. Setup frontend
+### 4. Start the frontend
+
+```bash
 cd frontend
 cp .env.example .env
 npm install
-npm run dev
+npm run dev                # runs on :3000
 ```
 
-## Default Users (after seeding)
-
-| Email | Password | Role |
-|-------|----------|------|
-| admin@complif.com | admin123 | admin |
-| viewer@complif.com | viewer123 | viewer |
+---
 
 ## API Endpoints
 
+All endpoints are prefixed with `/api`. Full interactive documentation is available at `/api/docs` (Swagger).
+
+### Authentication
+
 | Method | Endpoint | Description | Auth |
 |--------|----------|-------------|------|
-| POST | /api/auth/register | Register user | No |
-| POST | /api/auth/login | Login | No |
-| POST | /api/auth/logout | Logout current user | Yes |
-| POST | /api/businesses | Create business | Admin |
-| GET | /api/businesses | List businesses (paginated) | Yes |
-| GET | /api/businesses/:id | Get business detail | Yes |
-| PATCH | /api/businesses/:id/status | Change status | Admin |
-| GET | /api/businesses/:id/risk-score | Get risk score | Yes |
-| POST | /api/businesses/:id/documents | Upload document | Admin |
-| GET | /api/businesses/:id/documents | List documents | Yes |
+| `POST` | `/api/auth/register` | Register a new user | No |
+| `POST` | `/api/auth/login` | Login and receive JWT | No |
+| `POST` | `/api/auth/logout` | Logout current user | Bearer |
+
+### Businesses
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/businesses` | Create a company | Admin |
+| `GET` | `/api/businesses` | List companies (paginated, filterable) | Bearer |
+| `GET` | `/api/businesses/:id` | Get company detail with history | Bearer |
+| `PATCH` | `/api/businesses/:id/status` | Change company status | Admin |
+| `GET` | `/api/businesses/:id/risk-score` | Get risk assessment | Bearer |
+| `DELETE` | `/api/businesses/:id` | Soft-delete a company | Admin |
+
+**Query parameters for listing:** `page`, `limit`, `status`, `country`, `search` (name search).
+
+### Documents
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `POST` | `/api/businesses/:id/documents` | Upload a document (multipart) | Admin |
+| `GET` | `/api/businesses/:id/documents` | List documents for a company | Bearer |
+
+**Document types:** `fiscal_certificate`, `registration_proof`, `insurance_policy`, `other`
+
+### Reference Data
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/businesses/countries` | List supported countries | Bearer |
+| `GET` | `/api/businesses/industries` | List supported industries | Bearer |
+
+### Notifications
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| `GET` | `/api/notifications/stream` | SSE stream for real-time events | Bearer |
+| `GET` | `/api/notifications` | List past notifications | Bearer |
+
+---
 
 ## Database Schema
 
-**Tables:** `users`, `businesses`, `documents`, `status_history`
+```
+┌──────────────┐     ┌──────────────────┐     ┌──────────────────────┐
+│    users      │     │   businesses      │     │    documents          │
+├──────────────┤     ├──────────────────┤     ├──────────────────────┤
+│ id (PK)      │◀─┐  │ id (PK)          │◀─┐  │ id (PK)              │
+│ email        │  │  │ name             │  │  │ business_id (FK)     │
+│ password     │  │  │ tax_identifier   │  │  │ type (enum)          │
+│ role (enum)  │  │  │ country          │  │  │ file_name            │
+│ created_at   │  │  │ industry         │  │  │ file_path            │
+│ updated_at   │  │  │ status (enum)    │  │  │ mime_type            │
+└──────────────┘  │  │ risk_score       │  │  │ file_size            │
+                  │  │ created_at       │  │  │ checksum (SHA-256)   │
+                  │  │ updated_at       │  │  │ version              │
+                  │  │ deleted_at       │  │  │ uploaded_by_id (FK)  │
+                  │  │ deleted_by_id    │  │  │ created_at           │
+                  │  └──────────────────┘  │  └──────────────────────┘
+                  │                        │
+                  │  ┌──────────────────┐  │  ┌──────────────────────────┐
+                  │  │  status_history   │  │  │  risk_assessment_records  │
+                  │  ├──────────────────┤  │  ├──────────────────────────┤
+                  │  │ id (PK)          │  │  │ id (PK)                  │
+                  ├──│ changed_by_id    │  ├──│ business_id (FK)         │
+                  │  │ business_id (FK) │──┘  │ score                    │
+                  │  │ previous_status  │     │ country_risk             │
+                  │  │ new_status       │     │ industry_risk            │
+                  │  │ reason           │     │ documentation_risk       │
+                  │  │ created_at       │     │ missing_document_types   │
+                  │  └──────────────────┘     │ policy_version           │
+                  │                           │ created_at               │
+                  │  ┌──────────────────┐     └──────────────────────────┘
+                  │  │  notifications    │
+                  │  ├──────────────────┤     ┌──────────────────────┐
+                  └──│ user_id (FK)     │     │  country_policies     │
+                     │ id (PK)          │     │  industry_policies    │
+                     │ type             │     │  risk_settings        │
+                     │ title            │     │  (compliance config)  │
+                     │ message          │     └──────────────────────┘
+                     │ read             │
+                     │ created_at       │
+                     └──────────────────┘
+```
 
-- `users` - Internal platform users (admin/viewer roles)
-- `businesses` - Companies being onboarded (name, tax ID, country, industry, status, risk score)
-- `documents` - Uploaded files (fiscal certificate, registration proof, insurance policy)
-- `status_history` - Audit trail of status changes with timestamps and reasons
+Migrations are managed by TypeORM and run automatically when the backend starts. See `backend/src/database/migrations/` for the full migration history.
 
-## CI Pipeline
+---
 
-Three stages run on every push/PR to `main`:
+## Risk Scoring
 
-1. **build** — compiles backend, microservice, and frontend in parallel
-2. **test** — runs unit tests for backend and microservice
-3. **deploy** — validates Terraform configuration (`terraform validate`, no credentials needed)
+The risk engine computes a score from 0 to 100 based on three factors:
+
+| Factor | Source | Example |
+|--------|--------|---------|
+| **Country risk** | `country_policies` table | Cuba (`CU`): +30, Argentina (`AR`): +0 |
+| **Industry risk** | `industry_policies` table | Casino: +25, Technology: +0 |
+| **Documentation risk** | `risk_settings` table | Any required document missing: +20 |
+
+- **Score > 70** = requires manual review (configurable via `risk_settings`)
+- Required documents: fiscal certificate, registration proof, insurance policy
+- Every assessment is snapshotted with its full breakdown and policy version hash
+
+The scoring function is pure and deterministic — see `backend/src/risk-scoring/risk-assessment.policy.ts`.
+
+---
+
+## Testing
+
+Unit tests run locally (not inside Docker — the production images only contain compiled output).
+
+```bash
+# Backend (73 tests across 11 suites)
+cd backend
+npm test
+
+# Microservice (4 tests)
+cd microservice-format-validation
+npm test
+
+# Coverage report
+cd backend
+npm run test:cov
+```
+
+---
+
+## CI/CD Pipeline
+
+GitHub Actions runs on every push and PR to `main` with three sequential stages:
+
+| Stage | What it does |
+|-------|-------------|
+| **Build** | Compiles backend, microservice, and frontend in parallel (Node 20) |
+| **Test** | Runs unit tests for backend and microservice |
+| **Deploy** | Validates Terraform configuration (`terraform validate`, no cloud credentials needed) |
+
+See `.github/workflows/ci.yml`.
+
+---
 
 ## Infrastructure (Terraform)
 
-The `infrastructure/` directory contains validated `.tf` files ready to provision:
+The `infrastructure/` directory contains validated `.tf` files ready to provision. **Not deployed** — only validated in CI.
 
-| Resource | Purpose | Maps to Docker Compose |
-|----------|---------|----------------------|
+| Resource | Purpose | Docker Compose equivalent |
+|----------|---------|--------------------------|
 | VPC (2 public + 2 private subnets) | Network isolation | Docker network |
-| RDS PostgreSQL | Managed database | `postgres` service |
-| S3 bucket | Document storage (versioned, encrypted) | `uploads` volume |
-| ECS Fargate (backend) | Backend API | `backend` service |
-| ECS Fargate (microservice) | Tax ID validator | `format-validation` service |
-| ALB + HTTPS | Load balancer | Port 8080 binding |
-| Vercel project | Frontend hosting | `frontend` service |
+| RDS PostgreSQL 16 | Managed database | `postgres` service |
+| S3 bucket (versioned, encrypted) | Document storage | `uploads` volume |
+| ECS Fargate (backend + microservice) | Application containers | `backend` + `format-validation` |
+| ALB + HTTPS | Load balancer / TLS termination | Port 8080 binding |
+| Vercel | Frontend hosting | `frontend` service |
+| Security Groups | Ingress/egress rules | — |
 
-Not deployed — only validated in CI. See `QUESTIONS.md` #17 for rationale.
+---
+
+## Project Structure
+
+```
+complif/
+├── frontend/                          # Next.js 16 + React 19 + shadcn/ui + Tailwind
+│   ├── src/app/                       # App router pages (dashboard, login, companies, etc.)
+│   ├── src/components/                # UI components (shadcn + custom)
+│   ├── src/lib/                       # API client, types, permissions, reference data
+│   └── Dockerfile
+│
+├── backend/                           # NestJS 11 API
+│   ├── src/auth/                      # JWT authentication (register, login, logout)
+│   ├── src/businesses/                # Company CRUD, status transitions, tax ID validation
+│   ├── src/documents/                 # Document upload with checksums and versioning
+│   ├── src/risk-scoring/              # Pure risk engine + policy snapshots
+│   ├── src/notifications/             # SSE real-time notifications
+│   ├── src/common/                    # Entities, enums, guards, decorators, filters
+│   ├── src/database/                  # TypeORM migrations (5) and seeds (25 companies)
+│   └── Dockerfile
+│
+├── microservice-format-validation/    # Tax ID format validator (AR: CUIT, MX: RFC, BR: CNPJ)
+│   ├── src/validation/                # Validation logic with country-specific rules
+│   └── Dockerfile
+│
+├── infrastructure/                    # Terraform (AWS + Vercel), validated in CI
+│   ├── vpc.tf, rds.tf, ecs.tf        # Network, database, compute
+│   ├── s3.tf, security-groups.tf      # Storage, firewall rules
+│   └── vercel.tf                      # Frontend hosting
+│
+├── docs/                              # Challenge PDF, ER diagram, logo assets
+├── .github/workflows/ci.yml          # GitHub Actions pipeline
+├── docker-compose.yml                 # Local development orchestration
+├── complif.postman_collection.json    # Postman collection with all endpoints
+├── AGENTS.md                          # Architecture guide for AI agents / new developers
+├── QUESTIONS.md                       # Assumptions and design decisions (22 entries)
+├── .env.example                       # Environment variable template
+└── CHECKLIST.md                       # Implementation checklist
+```
+
+---
 
 ## Environment Variables
 
-See `.env.example` at the root and in each service directory.
+### Root `.env` (used by Docker Compose)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_USERNAME` | `postgres` | PostgreSQL username |
+| `DB_PASSWORD` | `postgres` | PostgreSQL password |
+| `DB_NAME` | `complif` | Database name |
+| `JWT_SECRET` | `change-me-to-a-random-secret` | Secret for signing JWT tokens |
+| `FRONTEND_URL` | `http://localhost:3000` | CORS origin for the backend |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8080/api` | API URL used by the frontend at build time |
+
+Each service also has its own `.env.example` — see `backend/.env.example`, `frontend/.env.example`, and `microservice-format-validation/.env.example`.
+
+---
+
+## Postman Collection
+
+Import `complif.postman_collection.json` into Postman or Thunder Client. It includes:
+
+- **Auth** — Register, login (auto-captures token), logout
+- **Businesses** — Create, list (paginated), detail, update status, risk score, soft delete
+- **Documents** — Upload (multipart), list by company
+- **Format Validation** — Health check, validate AR/MX/BR tax IDs
+
+The collection uses a `{{token}}` variable that is automatically set when you run the login request.
+
+---
 
 ## Assumptions and Decisions
 
-See `QUESTIONS.md` for the challenge assumptions that were made where the PDF leaves implementation details open, including the exact risk-score weights and the mock identifier-validation behavior.
+All design decisions where the challenge left room for interpretation are documented in [`QUESTIONS.md`](QUESTIONS.md) (22 entries), including:
+
+- Risk score weights and policy storage strategy
+- Status transition constraints and mandatory reasons
+- Tax ID validation failure behavior
+- Document audit trail (who uploaded, checksums, versioning)
+- Risk assessment snapshots with policy version hashing
+- Soft delete over hard delete for compliance auditability
+- Microservice network isolation
+
+---
 
 ## Agent Navigation
 
-`AGENTS.md` at the repository root explains the module boundaries, business flow, and data model for AI/code-navigation workflows.
+[`AGENTS.md`](AGENTS.md) provides a structured guide to the codebase for AI agents and new developers, covering module boundaries, compliance patterns, anti-patterns, and the data model.

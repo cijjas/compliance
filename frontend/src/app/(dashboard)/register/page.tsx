@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
@@ -31,6 +31,8 @@ import { toast } from "sonner";
 import { CountryLabel } from "@/components/country-flag";
 import { RiskAnalysis } from "@/components/risk-analysis";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { canManageComplianceRecords } from "@/lib/permissions";
 import {
   buildCountryLabelMap,
   buildIndustryLabelMap,
@@ -39,27 +41,42 @@ import {
 import { DocumentType } from "@/lib/types";
 import type { Business, BusinessRiskAssessment } from "@/lib/types";
 
-const DOC_TYPES: {
-  type: DocumentType;
-  label: string;
-  description: string;
-}[] = [
+const DOCUMENT_TYPE_DETAILS: Record<
+  DocumentType,
   {
-    type: DocumentType.FISCAL_CERTIFICATE,
+    label: string;
+    description: string;
+  }
+> = {
+  [DocumentType.FISCAL_CERTIFICATE]: {
     label: "Tax Certificate",
     description: "Proof of tax status from national authority.",
   },
-  {
-    type: DocumentType.REGISTRATION_PROOF,
+  [DocumentType.REGISTRATION_PROOF]: {
     label: "Proof of Registration",
     description: "Official company registration document.",
   },
-  {
-    type: DocumentType.INSURANCE_POLICY,
+  [DocumentType.INSURANCE_POLICY]: {
     label: "Insurance Policy",
     description: "Valid liability or worker insurance coverage.",
   },
-];
+};
+
+function getDocumentRequirement(type: DocumentType): {
+  type: DocumentType;
+  label: string;
+  description: string;
+} {
+  return {
+    type,
+    label:
+      DOCUMENT_TYPE_DETAILS[type]?.label ??
+      type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
+    description:
+      DOCUMENT_TYPE_DETAILS[type]?.description ??
+      "Required compliance document.",
+  };
+}
 
 function formatIndustry(value: string) {
   return value
@@ -76,8 +93,10 @@ const STEPS: { key: Step; label: string }[] = [
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { user, isLoading } = useAuth();
   const { referenceData, loading: referenceDataLoading, error: referenceDataError } =
     useBusinessReferenceData();
+  const canManageBusinesses = canManageComplianceRecords(user);
   const [step, setStep] = useState<Step>("entity");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -98,14 +117,50 @@ export default function RegisterPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
 
   const stepIndex = STEPS.findIndex((s) => s.key === step);
-  const missingDocuments = DOC_TYPES.filter(({ type }) => !files[type]);
-  const attachedDocumentTypes = DOC_TYPES.filter(({ type }) => !!files[type]).map(
-    ({ type }) => type,
-  );
   const countryLabels = buildCountryLabelMap(referenceData);
   const industryLabels = buildIndustryLabelMap(referenceData);
+  const documentRequirements = (referenceData?.requiredDocumentTypes ?? []).map(
+    getDocumentRequirement,
+  );
+  const missingDocuments = documentRequirements.filter(({ type }) => !files[type]);
+  const attachedDocumentTypes = documentRequirements
+    .filter(({ type }) => !!files[type])
+    .map(({ type }) => type);
+
+  useEffect(() => {
+    if (!isLoading && !canManageBusinesses) {
+      router.replace("/");
+    }
+  }, [canManageBusinesses, isLoading, router]);
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading access policy...</p>;
+  }
+
+  if (!canManageBusinesses) {
+    return (
+      <div className="max-w-2xl rounded-xl border bg-card p-8">
+        <p className="text-xs font-semibold tracking-widest uppercase text-primary">
+          Read-only Access
+        </p>
+        <h1 className="mt-2 font-display text-3xl font-bold tracking-tight">
+          Company registration is restricted
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          Viewer accounts can inspect company records, documents, and audit history, but cannot
+          create or modify onboarding files. Redirecting to the company registry.
+        </p>
+      </div>
+    );
+  }
+
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
   function addFile(type: DocumentType, file: File) {
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error("File too large", { description: "Maximum file size is 10 MB." });
+      return;
+    }
     const url = URL.createObjectURL(file);
     setFiles((prev) => ({ ...prev, [type]: file }));
     setPreviews((prev) => ({ ...prev, [type]: url }));
@@ -171,7 +226,7 @@ export default function RegisterPage() {
 
       const failedUploads: string[] = [];
 
-      for (const { type, label } of DOC_TYPES) {
+      for (const { type, label } of documentRequirements) {
         const file = files[type];
         if (!file) continue;
 
@@ -445,7 +500,11 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                  {DOC_TYPES.map(({ type, label, description }) => {
+                  {documentRequirements.length === 0 ? (
+                    <div className="col-span-full rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                      Loading compliance document requirements...
+                    </div>
+                  ) : documentRequirements.map(({ type, label, description }) => {
                     const file = files[type];
                     const cardPreviewUrl = previews[type];
                     const isDragActive = dragTarget === type;
@@ -651,7 +710,11 @@ export default function RegisterPage() {
                       Attached Documentation
                     </h2>
                     <div className="flex flex-col">
-                      {DOC_TYPES.map(({ type, label }) => {
+                      {documentRequirements.length === 0 ? (
+                        <div className="py-4 text-sm text-muted-foreground">
+                          Loading compliance document requirements...
+                        </div>
+                      ) : documentRequirements.map(({ type, label }) => {
                         const attached = !!files[type];
                         return (
                           <div key={type} className="flex items-center gap-4 py-4 border-b border-border/40 last:border-0">
@@ -741,7 +804,7 @@ export default function RegisterPage() {
             <iframe
               src={previewUrl}
               className="size-full rounded-lg"
-              title={`Full preview ${DOC_TYPES.find((doc) => doc.type === previewDocType)?.label ?? "document"}`}
+              title={`Full preview ${documentRequirements.find((doc) => doc.type === previewDocType)?.label ?? "document"}`}
             />
           </div>
         </div>

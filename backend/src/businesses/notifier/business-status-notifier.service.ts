@@ -16,7 +16,7 @@ export class BusinessStatusNotifierService {
 
   constructor(private readonly notificationsService: NotificationsService) {}
 
-  notifyStatusChanged(input: NotifyStatusChangedInput): void {
+  async notifyStatusChanged(input: NotifyStatusChangedInput): Promise<void> {
     const event = {
       businessId: input.businessId,
       businessName: input.businessName,
@@ -31,6 +31,6 @@ export class BusinessStatusNotifierService {
       ...event,
     });
 
-    this.notificationsService.emitStatusChange(event);
+    await this.notificationsService.emitStatusChange(event);
   }
 }

@@ -34,6 +34,8 @@ import { CompanyAvatar } from "@/components/company-avatar";
 import { CountryLabel } from "@/components/country-flag";
 import { StatusBadge } from "@/components/status-badge";
 import { api } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { canManageComplianceRecords } from "@/lib/permissions";
 import {
   buildCountryLabelMap,
   buildIndustryLabelMap,
@@ -52,11 +54,13 @@ function formatIndustry(value: string) {
 }
 
 export default function CompaniesPage() {
+  const { user } = useAuth();
   const [data, setData] = useState<PaginatedResponse<Business> | null>(null);
   const [stats, setStats] = useState<BusinessStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [country, setCountry] = useState<string>("all");
   const [industry, setIndustry] = useState<string>("all");
@@ -64,8 +68,18 @@ export default function CompaniesPage() {
   const { referenceData, error: referenceDataError } = useBusinessReferenceData();
 
   const activeRequestId = useRef<number>(0);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(debounceTimer.current);
+  }, [search]);
   const countryLabels = buildCountryLabelMap(referenceData);
   const industryLabels = buildIndustryLabelMap(referenceData);
+  const canManageBusinesses = canManageComplianceRecords(user);
 
   const fetchBusinesses = useCallback(async () => {
     const requestId = ++activeRequestId.current;
@@ -75,7 +89,7 @@ export default function CompaniesPage() {
     const params = new URLSearchParams();
     params.set("page", String(page));
     params.set("limit", String(PAGE_SIZE));
-    if (search) params.set("search", search);
+    if (debouncedSearch) params.set("search", debouncedSearch);
     if (status !== "all") params.set("status", status);
     if (country !== "all") params.set("country", country);
     if (industry !== "all") params.set("industry", industry);
@@ -98,7 +112,7 @@ export default function CompaniesPage() {
         setLoading(false);
       }
     }
-  }, [page, search, status, country, industry]);
+  }, [page, debouncedSearch, status, country, industry]);
 
   useEffect(() => {
     fetchBusinesses();
@@ -124,12 +138,14 @@ export default function CompaniesPage() {
             Companies
           </h1>
         </div>
-        <Link href="/register">
-          <Button size="lg">
-            <Building2 className="size-4" />
-            Register New Company
-          </Button>
-        </Link>
+        {canManageBusinesses && (
+          <Link href="/register">
+            <Button size="lg">
+              <Building2 className="size-4" />
+              Register New Company
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Error */}
@@ -171,10 +187,7 @@ export default function CompaniesPage() {
           <Input
             placeholder="Search by company name or legal ID..."
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
+            onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
           />
         </div>

@@ -141,6 +141,7 @@ async function seed() {
     documentationRiskPoints: documentationRiskSetting.numericValue,
     manualReviewThreshold: manualReviewThresholdSetting.numericValue,
     requiredDocumentTypes: REQUIRED_DOCUMENT_TYPES,
+    version: 'seed',
   };
 
   // Clear existing data (order matters for FK constraints)

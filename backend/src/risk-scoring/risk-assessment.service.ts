@@ -5,12 +5,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { createHash } from 'crypto';
 import {
   Business,
   CountryPolicy,
   IndustryPolicy,
   RiskSetting,
   RiskSettingKey,
+  RiskAssessmentRecord,
 } from '../common/entities';
 import {
   RiskAssessment,
@@ -31,6 +33,8 @@ export class RiskAssessmentService {
     private readonly industryPolicyRepo: Repository<IndustryPolicy>,
     @InjectRepository(RiskSetting)
     private readonly riskSettingRepo: Repository<RiskSetting>,
+    @InjectRepository(RiskAssessmentRecord)
+    private readonly riskAssessmentRecordRepo: Repository<RiskAssessmentRecord>,
   ) {}
 
   async refreshBusinessRiskScore(
@@ -45,14 +49,29 @@ export class RiskAssessmentService {
       throw new NotFoundException('Business not found');
     }
 
-    const assessment = await this.calculateAssessment({
-      country: business.country,
-      industry: business.industry,
-      documentTypes: business.documents.map((document) => document.type),
-    });
+    const snapshot = await this.loadPolicySnapshot();
+    const assessment = calculateRiskAssessment(
+      {
+        country: business.country,
+        industry: business.industry,
+        documentTypes: business.documents.map((document) => document.type),
+      },
+      snapshot,
+    );
 
     business.riskScore = assessment.score;
     await this.businessRepo.save(business);
+
+    await this.riskAssessmentRecordRepo.save({
+      businessId,
+      score: assessment.score,
+      requiresManualReview: assessment.requiresManualReview,
+      countryRisk: assessment.breakdown.countryRisk,
+      industryRisk: assessment.breakdown.industryRisk,
+      documentationRisk: assessment.breakdown.documentationRisk,
+      missingDocumentTypes: assessment.breakdown.missingDocumentTypes,
+      policyVersion: snapshot.version,
+    });
 
     return assessment;
   }
@@ -69,22 +88,40 @@ export class RiskAssessmentService {
       this.riskSettingRepo.find(),
     ]);
 
-    return {
-      countryRiskPointsByCode: new Map(
-        countries.map((country) => [country.code, country.riskPoints]),
-      ),
-      industryRiskPointsByKey: new Map(
-        industries.map((industry) => [industry.key, industry.riskPoints]),
-      ),
-      documentationRiskPoints: this.getRequiredSetting(
-        settings,
-        RiskSettingKey.DOCUMENTATION_RISK_POINTS,
-      ),
-      manualReviewThreshold: this.getRequiredSetting(
-        settings,
-        RiskSettingKey.MANUAL_REVIEW_THRESHOLD,
-      ),
+    const countryRiskPointsByCode = new Map(
+      countries.map((country) => [country.code, country.riskPoints]),
+    );
+    const industryRiskPointsByKey = new Map(
+      industries.map((industry) => [industry.key, industry.riskPoints]),
+    );
+    const documentationRiskPoints = this.getRequiredSetting(
+      settings,
+      RiskSettingKey.DOCUMENTATION_RISK_POINTS,
+    );
+    const manualReviewThreshold = this.getRequiredSetting(
+      settings,
+      RiskSettingKey.MANUAL_REVIEW_THRESHOLD,
+    );
+
+    const versionPayload = JSON.stringify({
+      countries: [...countryRiskPointsByCode.entries()].sort(),
+      industries: [...industryRiskPointsByKey.entries()].sort(),
+      documentationRiskPoints,
+      manualReviewThreshold,
       requiredDocumentTypes: REQUIRED_DOCUMENT_TYPES,
+    });
+    const version = createHash('sha256')
+      .update(versionPayload)
+      .digest('hex')
+      .slice(0, 16);
+
+    return {
+      countryRiskPointsByCode,
+      industryRiskPointsByKey,
+      documentationRiskPoints,
+      manualReviewThreshold,
+      requiredDocumentTypes: REQUIRED_DOCUMENT_TYPES,
+      version,
     };
   }
 

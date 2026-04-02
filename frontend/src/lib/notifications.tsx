@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { ApiError, authenticatedFetch } from "@/lib/api";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { api, ApiError, authenticatedFetch } from "@/lib/api";
 import { BusinessStatus } from "@/lib/types";
 
 interface StatusChangeEvent {
@@ -17,6 +17,32 @@ export interface Notification {
   id: string;
   event: StatusChangeEvent;
   read: boolean;
+}
+
+interface PersistedNotification {
+  id: string;
+  businessId: string;
+  businessName: string;
+  previousStatus: BusinessStatus;
+  newStatus: BusinessStatus;
+  changedById: string | null;
+  occurredAt: string;
+  read: boolean;
+}
+
+function toNotification(p: PersistedNotification): Notification {
+  return {
+    id: p.id,
+    read: p.read,
+    event: {
+      businessId: p.businessId,
+      businessName: p.businessName,
+      previousStatus: p.previousStatus,
+      newStatus: p.newStatus,
+      changedById: p.changedById,
+      occurredAt: p.occurredAt,
+    },
+  };
 }
 
 interface NotificationContextValue {
@@ -44,8 +70,25 @@ export function useNotifications() {
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [connected, setConnected] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
+  // Load persisted notifications on mount
   useEffect(() => {
+    api
+      .get<PersistedNotification[]>("/notifications")
+      .then((persisted) => {
+        setNotifications(persisted.map(toNotification));
+        setLoaded(true);
+      })
+      .catch(() => {
+        setLoaded(true);
+      });
+  }, []);
+
+  // SSE stream for real-time updates
+  useEffect(() => {
+    if (!loaded) return;
+
     let cancelled = false;
     let reconnectTimer: number | null = null;
     let controller: AbortController | null = null;
@@ -56,7 +99,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         event,
         read: false,
       };
-      setNotifications((prev) => [notification, ...prev]);
+      setNotifications((prev) => {
+        if (prev.some((n) => n.id === notification.id)) return prev;
+        return [notification, ...prev];
+      });
     }
 
     function parseEventChunk(chunk: string) {
@@ -165,19 +211,21 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       }
       controller?.abort();
     };
-  }, []);
+  }, [loaded]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  function markRead(id: string) {
+  const markRead = useCallback((id: string) => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
     );
-  }
+    api.patch(`/notifications/${id}/read`).catch(() => {});
+  }, []);
 
-  function markAllRead() {
+  const markAllRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  }
+    api.patch("/notifications/read-all").catch(() => {});
+  }, []);
 
   return (
     <NotificationContext.Provider

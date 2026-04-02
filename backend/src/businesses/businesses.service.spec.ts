@@ -3,7 +3,7 @@ import {
   ConflictException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Repository, type SelectQueryBuilder } from 'typeorm';
 import { Business } from '../common/entities';
 import { BusinessStatus } from '../common/enums';
 import { BusinessIdentifierValidationService } from './validation/business-identifier-validation.service';
@@ -31,9 +31,13 @@ describe('BusinessesService', () => {
   >;
   let listQueryBuilder: {
     andWhere: jest.Mock;
+    leftJoinAndSelect: jest.Mock;
+    where: jest.Mock;
+    addOrderBy: jest.Mock;
     orderBy: jest.Mock;
     skip: jest.Mock;
     take: jest.Mock;
+    getOne: jest.Mock;
     getManyAndCount: jest.Mock;
   };
   let dataSource: {
@@ -66,9 +70,13 @@ describe('BusinessesService', () => {
   beforeEach(() => {
     listQueryBuilder = {
       andWhere: jest.fn().mockReturnThis(),
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
+      getOne: jest.fn(),
       getManyAndCount: jest.fn(),
     };
     businessRepo = {
@@ -369,6 +377,30 @@ describe('BusinessesService', () => {
     );
   });
 
+  it('returns workflow metadata with the backend-approved next statuses', async () => {
+    listQueryBuilder.getOne.mockResolvedValue({
+      id: 'business-1',
+      name: 'Acme Corp',
+      status: BusinessStatus.PENDING,
+      documents: [],
+      statusHistory: [],
+    } as Business);
+
+    await expect(service.findOne('business-1')).resolves.toMatchObject({
+      id: 'business-1',
+      status: BusinessStatus.PENDING,
+      allowedNextStatuses: [
+        BusinessStatus.IN_REVIEW,
+        BusinessStatus.REJECTED,
+      ],
+    });
+
+    expect(businessRepo.createQueryBuilder).toHaveBeenCalledWith('b');
+    expect(listQueryBuilder.where).toHaveBeenCalledWith('b.id = :id', {
+      id: 'business-1',
+    });
+  });
+
   it('surfaces microservice outages as service-unavailable instead of invalid data', async () => {
     businessRepo.findOne.mockResolvedValue(null);
     identifierValidationService.validate.mockRejectedValue(
@@ -609,8 +641,8 @@ describe('BusinessesService', () => {
     };
 
     businessRepo.createQueryBuilder
-      .mockReturnValueOnce(countQb)
-      .mockReturnValueOnce(statusQb);
+      .mockReturnValueOnce(countQb as unknown as SelectQueryBuilder<Business>)
+      .mockReturnValueOnce(statusQb as unknown as SelectQueryBuilder<Business>);
     dataSource.createQueryBuilder.mockReturnValue(avgQb);
 
     const result = await service.getStats();

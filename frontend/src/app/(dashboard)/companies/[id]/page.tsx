@@ -22,10 +22,12 @@ import { CountryLabel } from "@/components/country-flag";
 import { INLINE_PDF_VIEWER_HASH, ProtectedPdfFrame } from "@/components/protected-pdf-frame";
 import { RiskAnalysis } from "@/components/risk-analysis";
 import { StatusBadge } from "@/components/status-badge";
+import { toast } from "sonner";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { canManageComplianceRecords } from "@/lib/permissions";
 import { buildCountryLabelMap, buildIndustryLabelMap, useBusinessReferenceData } from "@/lib/reference-data";
-import { BusinessStatus, DocumentType, UserRole } from "@/lib/types";
+import { BusinessStatus, DocumentType } from "@/lib/types";
 import type { Business, BusinessRiskAssessment } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/constants";
 
@@ -61,46 +63,57 @@ type StatusTransitionAction = {
   description: string;
 };
 
-const STATUS_TRANSITION_ACTIONS: Record<BusinessStatus, StatusTransitionAction[]> = {
-  [BusinessStatus.PENDING]: [
-    {
-      status: BusinessStatus.IN_REVIEW,
+function getStatusActionCopy(
+  currentStatus: BusinessStatus,
+  nextStatus: BusinessStatus,
+): Omit<StatusTransitionAction, "status"> {
+  if (currentStatus === BusinessStatus.PENDING && nextStatus === BusinessStatus.IN_REVIEW) {
+    return {
       label: "Move to In Review",
       description: "Open the case for analyst review.",
-    },
-    {
-      status: BusinessStatus.REJECTED,
+    };
+  }
+
+  if (currentStatus === BusinessStatus.PENDING && nextStatus === BusinessStatus.REJECTED) {
+    return {
       label: "Reject Case",
       description: "Close the case as rejected with an audit note.",
-    },
-  ],
-  [BusinessStatus.IN_REVIEW]: [
-    {
-      status: BusinessStatus.APPROVED,
+    };
+  }
+
+  if (currentStatus === BusinessStatus.IN_REVIEW && nextStatus === BusinessStatus.APPROVED) {
+    return {
       label: "Approve Case",
       description: "Mark the company as approved and complete onboarding.",
-    },
-    {
-      status: BusinessStatus.REJECTED,
+    };
+  }
+
+  if (currentStatus === BusinessStatus.IN_REVIEW && nextStatus === BusinessStatus.REJECTED) {
+    return {
       label: "Reject Case",
       description: "Reject the case after documenting the review outcome.",
-    },
-  ],
-  [BusinessStatus.APPROVED]: [
-    {
-      status: BusinessStatus.IN_REVIEW,
+    };
+  }
+
+  if (currentStatus === BusinessStatus.APPROVED && nextStatus === BusinessStatus.IN_REVIEW) {
+    return {
       label: "Send Back to Review",
       description: "Reopen an approved case for another review cycle.",
-    },
-  ],
-  [BusinessStatus.REJECTED]: [
-    {
-      status: BusinessStatus.IN_REVIEW,
+    };
+  }
+
+  if (currentStatus === BusinessStatus.REJECTED && nextStatus === BusinessStatus.IN_REVIEW) {
+    return {
       label: "Reopen for Review",
       description: "Reopen a rejected case by moving it back into review.",
-    },
-  ],
-};
+    };
+  }
+
+  return {
+    label: `Move to ${STATUS_LABELS[nextStatus]}`,
+    description: `Record the transition from ${STATUS_LABELS[currentStatus]} to ${STATUS_LABELS[nextStatus]}.`,
+  };
+}
 
 function formatDocumentTypeLabel(type: DocumentType) {
   return DOC_TYPE_LABELS[type] ?? type.replace(/_/g, " ");
@@ -155,7 +168,7 @@ export default function CompanyDetailPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { referenceData } = useBusinessReferenceData();
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const canManageBusinesses = canManageComplianceRecords(user);
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [riskAssessment, setRiskAssessment] = useState<BusinessRiskAssessment | null>(null);
@@ -203,7 +216,7 @@ export default function CompanyDetailPage() {
   }
 
   function handleStatusChange(newStatus: string) {
-    if (!business || newStatus === STATUS_SELECT_PLACEHOLDER) return;
+    if (!business || !canManageBusinesses || newStatus === STATUS_SELECT_PLACEHOLDER) return;
     setStatusSelection(newStatus);
     setNextStatus(newStatus as BusinessStatus);
     setStatusReason("");
@@ -211,7 +224,7 @@ export default function CompanyDetailPage() {
   }
 
   async function confirmStatusChange() {
-    if (!business || !nextStatus) return;
+    if (!business || !canManageBusinesses || !nextStatus) return;
     setStatusUpdating(true);
     try {
       await api.patch(`/businesses/${id}/status`, {
@@ -228,7 +241,7 @@ export default function CompanyDetailPage() {
   }
 
   async function confirmDeleteBusiness() {
-    if (!business) return;
+    if (!business || !canManageBusinesses) return;
     setDeleting(true);
     try {
       await api.delete(`/businesses/${id}`, {
@@ -245,7 +258,14 @@ export default function CompanyDetailPage() {
     }
   }
 
+  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+
   async function handleUpload(docType: DocumentType, file: File) {
+    if (!canManageBusinesses) return;
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error("File too large", { description: "Maximum file size is 10 MB." });
+      return;
+    }
     setUploading(docType);
     try {
       const formData = new FormData();
@@ -273,7 +293,7 @@ export default function CompanyDetailPage() {
   const score = riskAssessment?.score ?? business.riskScore ?? 0;
   const riskBreakdown = riskAssessment?.breakdown;
   const missingDocuments = riskBreakdown?.missingDocumentTypes ?? [];
-  const requiredDocumentTypes = Object.values(DocumentType);
+  const requiredDocumentTypes = referenceData?.requiredDocumentTypes ?? [];
   const uploadedDocumentCount = requiredDocumentTypes.filter((docType) =>
     business.documents.some((document) => document.type === docType),
   ).length;
@@ -323,7 +343,10 @@ export default function CompanyDetailPage() {
           : "All required compliance documents are currently on file.",
     },
   ];
-  const availableStatusActions = STATUS_TRANSITION_ACTIONS[business.status];
+  const availableStatusActions = (business.allowedNextStatuses ?? []).map((status) => ({
+    status,
+    ...getStatusActionCopy(business.status, status),
+  }));
   const selectedStatusAction = availableStatusActions.find((action) => action.status === nextStatus) ?? null;
   const getDocumentPath = (docId: string) => `/businesses/${id}/documents/${docId}/download`;
 
@@ -358,7 +381,7 @@ export default function CompanyDetailPage() {
         <div className="flex max-w-md flex-col items-end gap-2">
           <div className="flex flex-wrap items-center justify-end gap-3">
             <StatusBadge status={business.status} />
-            {isAdmin && (
+            {canManageBusinesses && (
               <>
                 <Select
                   value={statusSelection}
@@ -396,114 +419,123 @@ export default function CompanyDetailPage() {
               </>
             )}
           </div>
-          {isAdmin && availableStatusActions.length > 0 && (
+          {canManageBusinesses && availableStatusActions.length > 0 && (
             <p className="text-right text-xs text-muted-foreground">
               Next step: {availableStatusActions.map((action) => action.label).join(" or ")}.
+            </p>
+          )}
+          {!canManageBusinesses && (
+            <p className="text-right text-xs text-muted-foreground">
+              Read-only access. Status changes, document uploads, and deletions require an admin.
             </p>
           )}
         </div>
       </div>
 
-      <Dialog
-        open={statusDialogOpen}
-        onOpenChange={(open) => {
-          if (!statusUpdating) {
-            if (open) {
-              setStatusDialogOpen(true);
-              return;
-            }
+      {canManageBusinesses && (
+        <>
+          <Dialog
+            open={statusDialogOpen}
+            onOpenChange={(open) => {
+              if (!statusUpdating) {
+                if (open) {
+                  setStatusDialogOpen(true);
+                  return;
+                }
 
-            resetStatusDialog();
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Record status decision</DialogTitle>
-            <DialogDescription>
-              Add an audit reason for moving this company from {STATUS_LABELS[business.status]} to{" "}
-              {nextStatus ? STATUS_LABELS[nextStatus] : "the selected status"}.
-              {selectedStatusAction ? ` ${selectedStatusAction.description}` : ""}
-            </DialogDescription>
-          </DialogHeader>
+                resetStatusDialog();
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Record status decision</DialogTitle>
+                <DialogDescription>
+                  Add an audit reason for moving this company from {STATUS_LABELS[business.status]} to{" "}
+                  {nextStatus ? STATUS_LABELS[nextStatus] : "the selected status"}.
+                  {selectedStatusAction ? ` ${selectedStatusAction.description}` : ""}
+                </DialogDescription>
+              </DialogHeader>
 
-          <div className="space-y-2">
-            <label className="text-xs font-semibold tracking-widest uppercase text-muted-foreground">
-              Decision Reason
-            </label>
-            <Input
-              value={statusReason}
-              onChange={(event) => setStatusReason(event.target.value)}
-              placeholder="Describe the evidence or decision basis"
-              maxLength={500}
-            />
-            <p className="text-xs text-muted-foreground">
-              Compliance transitions require a short audit note of at least 10 characters.
-            </p>
-          </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold tracking-widest uppercase text-muted-foreground">
+                  Decision Reason
+                </label>
+                <Input
+                  value={statusReason}
+                  onChange={(event) => setStatusReason(event.target.value)}
+                  placeholder="Describe the evidence or decision basis"
+                  maxLength={500}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Compliance transitions require a short audit note of at least 10 characters.
+                </p>
+              </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={resetStatusDialog} disabled={statusUpdating}>
-              Cancel
-            </Button>
-            <Button
-              onClick={() => void confirmStatusChange()}
-              disabled={statusUpdating || statusReason.trim().length < 10}
-            >
-              {statusUpdating ? "Recording..." : "Record Status Change"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={resetStatusDialog} disabled={statusUpdating}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => void confirmStatusChange()}
+                  disabled={statusUpdating || statusReason.trim().length < 10}
+                >
+                  {statusUpdating ? "Recording..." : "Record Status Change"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
-      <Dialog
-        open={deleteDialogOpen}
-        onOpenChange={(open) => {
-          if (deleting) {
-            return;
-          }
+          <Dialog
+            open={deleteDialogOpen}
+            onOpenChange={(open) => {
+              if (deleting) {
+                return;
+              }
 
-          setDeleteDialogOpen(open);
-          if (!open) {
-            setDeleteReason("");
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete company record</DialogTitle>
-            <DialogDescription>Add a deletion reason before continuing.</DialogDescription>
-          </DialogHeader>
+              setDeleteDialogOpen(open);
+              if (!open) {
+                setDeleteReason("");
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete company record</DialogTitle>
+                <DialogDescription>Add a deletion reason before continuing.</DialogDescription>
+              </DialogHeader>
 
-          <div className="space-y-2">
-            <label className="text-xs font-semibold tracking-widest uppercase text-muted-foreground">
-              Deletion Reason
-            </label>
-            <Input
-              value={deleteReason}
-              onChange={(event) => setDeleteReason(event.target.value)}
-              placeholder="Explain why this company should be removed from active use"
-              maxLength={500}
-            />
-            <p className="text-xs text-muted-foreground">
-              The record will be hidden from view, but safely kept in the system in case you need it later.
-            </p>
-          </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold tracking-widest uppercase text-muted-foreground">
+                  Deletion Reason
+                </label>
+                <Input
+                  value={deleteReason}
+                  onChange={(event) => setDeleteReason(event.target.value)}
+                  placeholder="Explain why this company should be removed from active use"
+                  maxLength={500}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The record will be hidden from view, but safely kept in the system in case you need it later.
+                </p>
+              </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => void confirmDeleteBusiness()}
-              disabled={deleting || deleteReason.trim().length < 10}
-            >
-              {deleting ? "Deleting..." : "Delete Company"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => void confirmDeleteBusiness()}
+                  disabled={deleting || deleteReason.trim().length < 10}
+                >
+                  {deleting ? "Deleting..." : "Delete Company"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
 
       <div className="grid grid-cols-3 gap-6">
         {/* Left column — details + documents */}
@@ -544,7 +576,7 @@ export default function CompanyDetailPage() {
                 <h2 className="font-display text-lg font-bold tracking-tight">
                   Compliance Documents{" "}
                   <span className="text-base font-medium text-muted-foreground">
-                    ({uploadedDocumentCount}/3)
+                    ({uploadedDocumentCount}/{requiredDocumentTypes.length || "—"})
                   </span>
                 </h2>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -553,7 +585,11 @@ export default function CompanyDetailPage() {
               </div>
 
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {requiredDocumentTypes.map((docType) => {
+                {requiredDocumentTypes.length === 0 ? (
+                  <div className="col-span-full rounded-lg border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                    Loading compliance document requirements...
+                  </div>
+                ) : requiredDocumentTypes.map((docType) => {
                   const doc = business.documents.find((document) => document.type === docType);
                   const isUploaded = !!doc;
                   const isUploading = uploading === docType;
@@ -632,11 +668,13 @@ export default function CompanyDetailPage() {
                       </p>
 
                       <div
-                        className={`flex h-[360px] flex-col items-center justify-center rounded-xl border-2 border-dashed bg-card p-6 text-center transition-colors ${
-                          isDragActive ? "border-primary bg-primary/5" : "border-border"
+                        className={`flex h-[360px] flex-col items-center justify-center rounded-xl bg-card p-6 text-center transition-colors ${
+                          canManageBusinesses
+                            ? `border-2 border-dashed ${isDragActive ? "border-primary bg-primary/5" : "border-border"}`
+                            : "border border-border bg-muted/20"
                         }`}
                         onDragOver={(event) => {
-                          if (!isAdmin) return;
+                          if (!canManageBusinesses) return;
                           event.preventDefault();
                           setDragTarget(docType);
                         }}
@@ -646,7 +684,7 @@ export default function CompanyDetailPage() {
                           }
                         }}
                         onDrop={(event) => {
-                          if (!isAdmin) return;
+                          if (!canManageBusinesses) return;
                           event.preventDefault();
                           setDragTarget(null);
                           const file = event.dataTransfer.files?.[0];
@@ -655,14 +693,18 @@ export default function CompanyDetailPage() {
                           }
                         }}
                       >
-                        <Plus className="size-12 text-muted-foreground/40" />
+                        {canManageBusinesses ? (
+                          <Plus className="size-12 text-muted-foreground/40" />
+                        ) : (
+                          <Info className="size-10 text-muted-foreground/50" />
+                        )}
                         <p className="mt-2 max-w-[15rem] text-sm text-muted-foreground">
-                          {isAdmin
+                          {canManageBusinesses
                             ? "Upload the missing PDF for this requirement."
-                            : "This document has not been uploaded yet."}
+                            : "This required document is not currently on file."}
                         </p>
 
-                        {isAdmin ? (
+                        {canManageBusinesses ? (
                           <label className="mt-6 cursor-pointer">
                             <input
                               type="file"
@@ -682,7 +724,11 @@ export default function CompanyDetailPage() {
                               </span>
                             </Button>
                           </label>
-                        ) : null}
+                        ) : (
+                          <p className="mt-6 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                            Read-only access
+                          </p>
+                        )}
                       </div>
                     </div>
                   );

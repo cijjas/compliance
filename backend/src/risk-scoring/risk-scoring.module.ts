@@ -5,6 +5,7 @@ import {
   CountryPolicy,
   IndustryPolicy,
   RiskSetting,
+  RiskAssessmentRecord,
 } from '../common/entities';
 import { RiskAssessmentService } from './risk-assessment.service';
 
@@ -15,6 +16,7 @@ import { RiskAssessmentService } from './risk-assessment.service';
       CountryPolicy,
       IndustryPolicy,
       RiskSetting,
+      RiskAssessmentRecord,
     ]),
   ],
   providers: [RiskAssessmentService],

@@ -48,14 +48,14 @@ export class Business {
   @JoinColumn({ name: 'created_by_id' })
   createdBy!: User | null;
 
-  @Column({ name: 'created_by_id', nullable: true })
+  @Column({ name: 'created_by_id', type: 'uuid', nullable: true })
   createdById!: string | null;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: 'deleted_by_id' })
   deletedBy!: User | null;
 
-  @Column({ name: 'deleted_by_id', nullable: true })
+  @Column({ name: 'deleted_by_id', type: 'uuid', nullable: true })
   deletedById!: string | null;
 
   @Column({ name: 'deletion_reason', type: 'text', nullable: true })

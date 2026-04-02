@@ -8,21 +8,21 @@ import {
 } from 'typeorm';
 import { BusinessStatus } from '../enums';
 import { Business } from './business.entity';
-import { User } from './user.entity';
 
-@Entity('status_history')
-export class StatusHistory {
+@Entity('notifications')
+export class Notification {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @ManyToOne(() => Business, (business) => business.statusHistory, {
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(() => Business, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'business_id' })
   business!: Business;
 
   @Column({ name: 'business_id' })
   businessId!: string;
+
+  @Column({ name: 'business_name' })
+  businessName!: string;
 
   @Column({
     name: 'previous_status',
@@ -35,15 +35,14 @@ export class StatusHistory {
   @Column({ name: 'new_status', type: 'enum', enum: BusinessStatus })
   newStatus!: BusinessStatus;
 
-  @Column({ type: 'text', nullable: true })
-  reason!: string | null;
-
-  @ManyToOne(() => User, { nullable: true })
-  @JoinColumn({ name: 'changed_by_id' })
-  changedBy!: User | null;
-
   @Column({ name: 'changed_by_id', type: 'uuid', nullable: true })
   changedById!: string | null;
+
+  @Column({ name: 'occurred_at', type: 'timestamptz' })
+  occurredAt!: Date;
+
+  @Column({ default: false })
+  read!: boolean;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

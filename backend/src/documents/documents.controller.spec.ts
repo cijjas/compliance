@@ -17,9 +17,10 @@ import {
 } from './documents.controller';
 import { DocumentsService } from './documents.service';
 import { UploadDocumentDto } from './dto/upload-document.dto';
-import { DocumentType } from '../common/enums';
+import { DocumentType, UserRole } from '../common/enums';
 import type { Document } from '../common/entities';
 import type { Business } from '../common/entities';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface';
 
 function buildMockDocument(overrides: Partial<Document> = {}): Document {
   return {
@@ -31,10 +32,20 @@ function buildMockDocument(overrides: Partial<Document> = {}): Document {
     filePath: 'uploads/fiscal-certificate.pdf',
     mimeType: 'application/pdf',
     fileSize: 1024,
+    uploadedBy: null,
+    uploadedById: null,
+    checksum: 'abc123',
+    version: 1,
     createdAt: new Date('2025-01-01'),
     ...overrides,
   };
 }
+
+const mockUser: AuthenticatedUser = {
+  id: 'user-1',
+  email: 'admin@complif.com',
+  role: UserRole.ADMIN,
+};
 
 describe('DocumentsController', () => {
   let controller: DocumentsController;
@@ -90,7 +101,7 @@ describe('DocumentsController', () => {
     expect(accepted).toBe(false);
   });
 
-  it('upload delegates to the documents service', async () => {
+  it('upload delegates to the documents service with the user id', async () => {
     const businessId = '8f5f6fa8-c6cf-4df2-9107-b29339af22a6';
     const file = {
       originalname: 'fiscal-certificate.pdf',
@@ -101,16 +112,17 @@ describe('DocumentsController', () => {
     const dto: UploadDocumentDto = {
       type: DocumentType.FISCAL_CERTIFICATE,
     };
-    const result = buildMockDocument({ businessId });
+    const result = buildMockDocument({ businessId, uploadedById: mockUser.id });
     documentsService.upload.mockResolvedValue(result);
 
-    await expect(controller.upload(businessId, file, dto)).resolves.toEqual(
-      result,
-    );
+    await expect(
+      controller.upload(businessId, file, dto, mockUser),
+    ).resolves.toEqual(result);
     expect(documentsService.upload).toHaveBeenCalledWith(
       businessId,
       file,
       dto.type,
+      mockUser.id,
     );
   });
 

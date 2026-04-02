@@ -9,15 +9,15 @@ describe('BusinessStatusNotifierService', () => {
   >;
 
   beforeEach(() => {
-    notificationsService = { emitStatusChange: jest.fn() };
+    notificationsService = { emitStatusChange: jest.fn().mockResolvedValue(undefined) };
 
     service = new BusinessStatusNotifierService(
       notificationsService as unknown as NotificationsService,
     );
   });
 
-  it('emits a status change event to the notifications service', () => {
-    service.notifyStatusChanged({
+  it('emits a status change event to the notifications service', async () => {
+    await service.notifyStatusChanged({
       businessId: 'business-1',
       businessName: 'Acme Corp SA',
       previousStatus: BusinessStatus.PENDING,
@@ -38,8 +38,8 @@ describe('BusinessStatusNotifierService', () => {
     expect(event.occurredAt).toBeDefined();
   });
 
-  it('defaults changedById to null when not provided', () => {
-    service.notifyStatusChanged({
+  it('defaults changedById to null when not provided', async () => {
+    await service.notifyStatusChanged({
       businessId: 'business-1',
       businessName: 'Acme Corp SA',
       previousStatus: BusinessStatus.PENDING,

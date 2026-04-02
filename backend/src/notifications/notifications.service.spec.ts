@@ -1,5 +1,7 @@
+import { Repository } from 'typeorm';
 import { firstValueFrom } from 'rxjs';
 import { BusinessStatus } from '../common/enums';
+import { Notification } from '../common/entities';
 import {
   NotificationsService,
   StatusChangeEvent,
@@ -7,12 +9,24 @@ import {
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
+  let notificationRepo: jest.Mocked<
+    Pick<Repository<Notification>, 'create' | 'save' | 'find' | 'update'>
+  >;
 
   beforeEach(() => {
-    service = new NotificationsService();
+    notificationRepo = {
+      create: jest.fn((dto) => dto as Notification),
+      save: jest.fn().mockResolvedValue({}),
+      find: jest.fn().mockResolvedValue([]),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+
+    service = new NotificationsService(
+      notificationRepo as unknown as Repository<Notification>,
+    );
   });
 
-  it('emits events that are received by subscribers', async () => {
+  it('persists and emits events that are received by subscribers', async () => {
     const event: StatusChangeEvent = {
       businessId: 'business-1',
       businessName: 'Acme Corp SA',
@@ -23,9 +37,10 @@ describe('NotificationsService', () => {
     };
 
     const promise = firstValueFrom(service.getStatusChanges$());
-    service.emitStatusChange(event);
+    await service.emitStatusChange(event);
 
     await expect(promise).resolves.toEqual(event);
+    expect(notificationRepo.save).toHaveBeenCalledTimes(1);
   });
 
   it('delivers events to multiple subscribers', async () => {
@@ -40,9 +55,33 @@ describe('NotificationsService', () => {
 
     const promise1 = firstValueFrom(service.getStatusChanges$());
     const promise2 = firstValueFrom(service.getStatusChanges$());
-    service.emitStatusChange(event);
+    await service.emitStatusChange(event);
 
     await expect(promise1).resolves.toEqual(event);
     await expect(promise2).resolves.toEqual(event);
+  });
+
+  it('findAll returns persisted notifications', async () => {
+    const notifications = [{ id: 'n1' }, { id: 'n2' }] as Notification[];
+    notificationRepo.find.mockResolvedValue(notifications);
+
+    await expect(service.findAll()).resolves.toBe(notifications);
+    expect(notificationRepo.find).toHaveBeenCalledWith({
+      order: { createdAt: 'DESC' },
+      take: 100,
+    });
+  });
+
+  it('markRead updates a single notification', async () => {
+    await service.markRead('n1');
+    expect(notificationRepo.update).toHaveBeenCalledWith('n1', { read: true });
+  });
+
+  it('markAllRead updates all unread notifications', async () => {
+    await service.markAllRead();
+    expect(notificationRepo.update).toHaveBeenCalledWith(
+      { read: false },
+      { read: true },
+    );
   });
 });
