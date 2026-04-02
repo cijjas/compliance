@@ -219,12 +219,21 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
     );
-    api.patch(`/notifications/${id}/read`).catch(() => {});
+    api.patch(`/notifications/${id}/read`).catch(() => {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read: false } : n)),
+      );
+    });
   }, []);
 
   const markAllRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    api.patch("/notifications/read-all").catch(() => {});
+    setNotifications((prev) => {
+      const snapshot = prev;
+      api.patch("/notifications/read-all").catch(() => {
+        setNotifications(snapshot);
+      });
+      return prev.map((n) => ({ ...n, read: true }));
+    });
   }, []);
 
   return (

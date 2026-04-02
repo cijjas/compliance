@@ -110,7 +110,7 @@ describe('BusinessesController', () => {
   });
 
   it('findOne delegates to the businesses service', async () => {
-    const result = buildMockBusiness();
+    const result = { ...buildMockBusiness(), allowedNextStatuses: [BusinessStatus.IN_REVIEW, BusinessStatus.REJECTED] };
     businessesService.findOne.mockResolvedValue(result);
 
     await expect(

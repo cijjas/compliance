@@ -9,13 +9,16 @@ import {
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
-  let notificationRepo: jest.Mocked<
-    Pick<Repository<Notification>, 'create' | 'save' | 'find' | 'update'>
-  >;
+  let notificationRepo: {
+    create: jest.Mock;
+    save: jest.Mock;
+    find: jest.Mock;
+    update: jest.Mock;
+  };
 
   beforeEach(() => {
     notificationRepo = {
-      create: jest.fn((dto) => dto as Notification),
+      create: jest.fn((dto) => dto),
       save: jest.fn().mockResolvedValue({}),
       find: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({ affected: 1 }),

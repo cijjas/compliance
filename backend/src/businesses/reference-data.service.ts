@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,6 +10,7 @@ import {
   RiskSetting,
   RiskSettingKey,
 } from '../common/entities';
+import { getRequiredRiskSetting } from '../common/utils/risk-settings.util';
 import { DocumentType } from '../common/enums';
 import { REQUIRED_DOCUMENT_TYPES } from '../risk-scoring';
 
@@ -58,11 +58,11 @@ export class BusinessReferenceDataService {
         riskPoints: industry.riskPoints,
       })),
       riskSettings: {
-        documentationRiskPoints: this.getRequiredSetting(
+        documentationRiskPoints: getRequiredRiskSetting(
           settings,
           RiskSettingKey.DOCUMENTATION_RISK_POINTS,
         ),
-        manualReviewThreshold: this.getRequiredSetting(
+        manualReviewThreshold: getRequiredRiskSetting(
           settings,
           RiskSettingKey.MANUAL_REVIEW_THRESHOLD,
         ),
@@ -125,18 +125,4 @@ export class BusinessReferenceDataService {
     ]);
   }
 
-  private getRequiredSetting(
-    settings: RiskSetting[],
-    key: RiskSettingKey,
-  ): number {
-    const match = settings.find((setting) => setting.key === key);
-
-    if (!match) {
-      throw new InternalServerErrorException(
-        `Compliance risk setting "${key}" is missing.`,
-      );
-    }
-
-    return match.numericValue;
-  }
 }

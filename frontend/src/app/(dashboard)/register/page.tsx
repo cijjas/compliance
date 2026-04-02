@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import { CountryLabel } from "@/components/country-flag";
 import { RiskAnalysis } from "@/components/risk-analysis";
 import { api, ApiError } from "@/lib/api";
+import { MAX_FILE_SIZE } from "@/lib/constants";
 import { useAuth } from "@/lib/auth";
 import { canManageComplianceRecords } from "@/lib/permissions";
 import {
@@ -40,6 +41,7 @@ import {
 } from "@/lib/reference-data";
 import { DocumentType } from "@/lib/types";
 import type { Business, BusinessRiskAssessment } from "@/lib/types";
+import { formatIndustry, formatBytes } from "@/lib/formatting";
 
 const DOCUMENT_TYPE_DETAILS: Record<
   DocumentType,
@@ -76,12 +78,6 @@ function getDocumentRequirement(type: DocumentType): {
       DOCUMENT_TYPE_DETAILS[type]?.description ??
       "Required compliance document.",
   };
-}
-
-function formatIndustry(value: string) {
-  return value
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 type Step = "entity" | "documents" | "review";
@@ -153,8 +149,6 @@ export default function RegisterPage() {
       </div>
     );
   }
-
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
   function addFile(type: DocumentType, file: File) {
     if (file.size > MAX_FILE_SIZE) {
@@ -812,14 +806,6 @@ export default function RegisterPage() {
     </div>
   );
 }
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
-}
-
 
 function getPackageState({
   missingDocumentCount,

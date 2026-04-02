@@ -47,9 +47,10 @@ export class BusinessesService {
   private attachWorkflowMetadata<T extends Business>(
     business: T,
   ): T & { allowedNextStatuses: BusinessStatus[] } {
-    return Object.assign(business, {
+    return {
+      ...business,
       allowedNextStatuses: [...getAllowedBusinessStatusTransitions(business.status)],
-    });
+    };
   }
 
   private async findBusinessIncludingDeleted(id: string): Promise<Business> {

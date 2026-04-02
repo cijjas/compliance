@@ -19,7 +19,16 @@ export class AuthService {
     private jwtService: JwtService,
   ) {}
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto): Promise<{
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: string;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+  }> {
     const existing = await this.usersRepo.findOne({
       where: { email: dto.email },
     });
@@ -41,7 +50,16 @@ export class AuthService {
     };
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto): Promise<{
+    accessToken: string;
+    user: {
+      id: string;
+      email: string;
+      firstName: string;
+      lastName: string;
+      role: string;
+    };
+  }> {
     const user = await this.usersRepo
       .createQueryBuilder('user')
       .addSelect('user.password')

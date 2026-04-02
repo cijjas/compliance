@@ -82,24 +82,24 @@ export async function authenticatedFetch(
   return res;
 }
 
-async function request<T>(
+async function request<T = void>(
   path: string,
   options: ApiRequestInit = {},
 ): Promise<T> {
   const res = await authenticatedFetch(path, options);
 
   if (res.status === 204) {
-    return undefined as T;
+    return undefined as T & void;
   }
 
   const contentLength = res.headers.get("content-length");
   if (contentLength === "0") {
-    return undefined as T;
+    return undefined as T & void;
   }
 
   const bodyText = await res.text();
   if (!bodyText) {
-    return undefined as T;
+    return undefined as T & void;
   }
 
   const contentType = res.headers.get("content-type") ?? "";

@@ -44,14 +44,9 @@ import {
 import { BusinessStatus } from "@/lib/types";
 import type { Business, BusinessStats, PaginatedResponse } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/constants";
+import { formatIndustry } from "@/lib/formatting";
 
 const PAGE_SIZE = 10;
-
-function formatIndustry(value: string) {
-  return value
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
-}
 
 export default function CompaniesPage() {
   const { user } = useAuth();
@@ -95,13 +90,19 @@ export default function CompaniesPage() {
     if (industry !== "all") params.set("industry", industry);
 
     try {
-      const [res, statsRes] = await Promise.all([
+      const [res, statsRes] = await Promise.allSettled([
         api.get<PaginatedResponse<Business>>(`/businesses?${params}`),
         api.get<BusinessStats>("/businesses/stats"),
       ]);
       if (requestId !== activeRequestId.current) return;
-      setData(res);
-      setStats(statsRes);
+      if (res.status === "fulfilled") {
+        setData(res.value);
+      } else {
+        setError(res.reason instanceof Error ? res.reason.message : "Failed to load companies");
+      }
+      if (statsRes.status === "fulfilled") {
+        setStats(statsRes.value);
+      }
     } catch (err) {
       if (requestId !== activeRequestId.current) return;
       setError(

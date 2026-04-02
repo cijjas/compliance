@@ -8,9 +8,8 @@ import {
   StreamableFile,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
-import { writeFileSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { mkdirSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
 import {
   DocumentsController,
   documentPdfFileFilter,
@@ -136,7 +135,9 @@ describe('DocumentsController', () => {
   });
 
   it('download resolves the document via the service', async () => {
-    const filePath = join(tmpdir(), 'complif-documents-controller-success.pdf');
+    const uploadsDir = resolve('./uploads');
+    mkdirSync(uploadsDir, { recursive: true });
+    const filePath = join(uploadsDir, 'complif-documents-controller-success.pdf');
     const doc = buildMockDocument({
       filePath,
       mimeType: 'application/pdf',
@@ -164,7 +165,7 @@ describe('DocumentsController', () => {
 
   it('download fails with NotFoundException when the file is missing on disk', async () => {
     const doc = buildMockDocument({
-      filePath: join(tmpdir(), 'complif-missing-document.pdf'),
+      filePath: join(resolve('./uploads'), 'complif-missing-document.pdf'),
     });
     const res = {
       set: jest.fn(),

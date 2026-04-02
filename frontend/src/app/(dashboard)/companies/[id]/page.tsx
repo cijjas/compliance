@@ -18,6 +18,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { CountryLabel } from "@/components/country-flag";
 import { INLINE_PDF_VIEWER_HASH, ProtectedPdfFrame } from "@/components/protected-pdf-frame";
 import { RiskAnalysis } from "@/components/risk-analysis";
@@ -29,7 +30,8 @@ import { canManageComplianceRecords } from "@/lib/permissions";
 import { buildCountryLabelMap, buildIndustryLabelMap, useBusinessReferenceData } from "@/lib/reference-data";
 import { BusinessStatus, DocumentType } from "@/lib/types";
 import type { Business, BusinessRiskAssessment } from "@/lib/types";
-import { STATUS_LABELS } from "@/lib/constants";
+import { MAX_FILE_SIZE, STATUS_LABELS } from "@/lib/constants";
+import { formatIndustry, formatBytes, formatDate, formatDateTime, timeAgo } from "@/lib/formatting";
 
 type ActivityLogEntry =
   | {
@@ -39,6 +41,7 @@ type ActivityLogEntry =
       title: string;
       subtitle: string | null;
       actor: string | null;
+      actorInitials: string | null;
     }
   | {
       id: string;
@@ -47,6 +50,7 @@ type ActivityLogEntry =
       title: string;
       subtitle: string;
       actor: null;
+      actorInitials: null;
     };
 
 const DOC_TYPE_LABELS: Record<DocumentType, string> = {
@@ -119,48 +123,14 @@ function formatDocumentTypeLabel(type: DocumentType) {
   return DOC_TYPE_LABELS[type] ?? type.replace(/_/g, " ");
 }
 
-function formatIndustry(value: string) {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${kb.toFixed(1)} KB`;
-  return `${(kb / 1024).toFixed(1)} MB`;
-}
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-function formatDateTime(dateStr: string) {
-  return new Date(dateStr).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function timeAgo(dateStr: string) {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 function getActorName(actor: { firstName: string; lastName: string } | null) {
   if (!actor) return null;
   return `${actor.firstName} ${actor.lastName}`.trim();
+}
+
+function getActorInitials(actor: { firstName: string; lastName: string } | null) {
+  if (!actor) return null;
+  return `${actor.firstName[0]}${actor.lastName[0]}`.toUpperCase();
 }
 
 export default function CompanyDetailPage() {
@@ -191,12 +161,18 @@ export default function CompanyDetailPage() {
   const fetchBusiness = useCallback(async () => {
     setError(null);
     try {
-      const [businessRes, riskRes] = await Promise.all([
+      const [businessRes, riskRes] = await Promise.allSettled([
         api.get<Business>(`/businesses/${id}`),
         api.get<BusinessRiskAssessment>(`/businesses/${id}/risk-score`),
       ]);
-      setBusiness(businessRes);
-      setRiskAssessment(riskRes);
+      if (businessRes.status === "fulfilled") {
+        setBusiness(businessRes.value);
+      } else {
+        setError(businessRes.reason instanceof Error ? businessRes.reason.message : "Failed to load company");
+      }
+      if (riskRes.status === "fulfilled") {
+        setRiskAssessment(riskRes.value);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load company");
     } finally {
@@ -258,8 +234,6 @@ export default function CompanyDetailPage() {
     }
   }
 
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
-
   async function handleUpload(docType: DocumentType, file: File) {
     if (!canManageBusinesses) return;
     if (file.size > MAX_FILE_SIZE) {
@@ -305,6 +279,7 @@ export default function CompanyDetailPage() {
       title: `Status changed to ${STATUS_LABELS[entry.newStatus]}`,
       subtitle: entry.reason,
       actor: getActorName(entry.changedBy),
+      actorInitials: getActorInitials(entry.changedBy),
     })),
     ...business.documents.map((document) => ({
       id: `document-${document.id}`,
@@ -313,6 +288,7 @@ export default function CompanyDetailPage() {
       title: `${formatDocumentTypeLabel(document.type)} uploaded`,
       subtitle: document.fileName,
       actor: null,
+      actorInitials: null,
     })),
   ]
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
@@ -782,7 +758,12 @@ export default function CompanyDetailPage() {
 
                         <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                           {entry.changedBy && (
-                            <span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <Avatar size="sm" className="size-5">
+                                <AvatarFallback className="text-[10px] font-medium">
+                                  {entry.changedBy.firstName[0]}{entry.changedBy.lastName[0]}
+                                </AvatarFallback>
+                              </Avatar>
                               {entry.changedBy.firstName} {entry.changedBy.lastName}
                             </span>
                           )}
@@ -815,7 +796,16 @@ export default function CompanyDetailPage() {
                       {entry.subtitle && (
                         <p className="mt-1 truncate text-xs text-muted-foreground">{entry.subtitle}</p>
                       )}
-                      {entry.actor && <p className="mt-1 text-xs text-muted-foreground">By {entry.actor}</p>}
+                      {entry.actor && (
+                        <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Avatar size="sm" className="size-4">
+                            <AvatarFallback className="text-[8px] font-medium">
+                              {entry.actorInitials}
+                            </AvatarFallback>
+                          </Avatar>
+                          By {entry.actor}
+                        </p>
+                      )}
                     </div>
                     <div className="shrink-0 text-right">
                       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">

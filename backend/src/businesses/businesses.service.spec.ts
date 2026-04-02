@@ -244,9 +244,10 @@ describe('BusinessesService', () => {
             : transactionStatusHistoryRepo,
       }),
     );
-    jest.spyOn(service, 'findOne').mockResolvedValue(savedBusiness);
+    const savedBusinessWithMetadata = { ...savedBusiness, allowedNextStatuses: [] };
+    jest.spyOn(service, 'findOne').mockResolvedValue(savedBusinessWithMetadata);
 
-    await expect(service.create(dto, 'user-1')).resolves.toBe(savedBusiness);
+    await expect(service.create(dto, 'user-1')).resolves.toBe(savedBusinessWithMetadata);
 
     expect(
       referenceDataService.assertSupportedBusinessProfile,
@@ -384,7 +385,7 @@ describe('BusinessesService', () => {
       status: BusinessStatus.PENDING,
       documents: [],
       statusHistory: [],
-    } as Business);
+    } as unknown as Business);
 
     await expect(service.findOne('business-1')).resolves.toMatchObject({
       id: 'business-1',
@@ -428,11 +429,13 @@ describe('BusinessesService', () => {
       id: 'business-1',
       name: 'Acme Corp',
       status: BusinessStatus.IN_REVIEW,
-    } as Business;
+      allowedNextStatuses: [BusinessStatus.APPROVED, BusinessStatus.REJECTED],
+    } as Business & { allowedNextStatuses: BusinessStatus[] };
     const updatedBusiness = {
       ...currentBusiness,
       status: BusinessStatus.APPROVED,
-    } as Business;
+      allowedNextStatuses: [BusinessStatus.IN_REVIEW],
+    } as Business & { allowedNextStatuses: BusinessStatus[] };
     const dto: UpdateStatusDto = {
       status: BusinessStatus.APPROVED,
       reason: 'All checks passed',
@@ -489,7 +492,8 @@ describe('BusinessesService', () => {
       id: 'business-1',
       name: 'Acme Corp',
       status: BusinessStatus.PENDING,
-    } as Business);
+      allowedNextStatuses: [BusinessStatus.IN_REVIEW, BusinessStatus.REJECTED],
+    } as Business & { allowedNextStatuses: BusinessStatus[] });
 
     await expect(
       service.updateStatus(
@@ -511,7 +515,8 @@ describe('BusinessesService', () => {
       id: 'business-1',
       name: 'Acme Corp',
       status: BusinessStatus.PENDING,
-    } as Business);
+      allowedNextStatuses: [BusinessStatus.IN_REVIEW, BusinessStatus.REJECTED],
+    } as Business & { allowedNextStatuses: BusinessStatus[] });
 
     await expect(
       service.updateStatus(

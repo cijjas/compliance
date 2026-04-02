@@ -18,7 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ParseFilePipeBuilder } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiConsumes } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
-import { extname, resolve } from 'path';
+import { extname, resolve, join } from 'path';
 import { createReadStream, existsSync } from 'fs';
 import { v4 as uuid } from 'uuid';
 import type { Response } from 'express';
@@ -98,7 +98,11 @@ export class DocumentsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const doc = await this.documentsService.findOneForBusiness(businessId, id);
+    const uploadsDir = resolve('./uploads');
     const filePath = resolve(doc.filePath);
+    if (!filePath.startsWith(uploadsDir + '/')) {
+      throw new NotFoundException('Document file not found');
+    }
     if (!existsSync(filePath)) {
       throw new NotFoundException('Document file not found');
     }
