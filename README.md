@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/complif-logo.svg" alt="Complif" width="280" />
+  <img src="assets/complif-logo-readme.png" alt="Complif" width="800" style="border-radius:20px;" />
 </p>
 
 <p align="center">
@@ -37,7 +37,7 @@ combinations, and full traceability of who signed what.
 ### Raw Domain Model
 
 <p align="center">
-  <img src="assets/er-1-pure.png" alt="Exercise 1 raw data model" width="900" />
+  <img src="assets/er-1-pure.png" alt="Exercise 1 raw data model" width="900" style="border-radius:20px;"/>
 </p>
 
 First pass, maps directly from the problem statement before any normalization.
@@ -45,13 +45,14 @@ First pass, maps directly from the problem statement before any normalization.
 ### Refined ER Diagram
 
 <p align="center">
-  <img src="assets/er-1.jpg" alt="Exercise 1 refined ER diagram" width="900" />
+  <img src="assets/er-1.jpg" alt="Exercise 1 refined ER diagram" width="900" style="border-radius:20px;"/>
 </p>
 
 The refined model supports:
 
 - Faculties as a reusable catalog tied to account-level signature schemas.
-- Groups and rules that compose, so one faculty can have multiple valid signing paths (e.g. "1 from A OR 2 from B").
+- Groups and rules that compose, so one faculty can have multiple valid signing paths (e.g. "1 from A OR 2
+  from B").
 - Signature requests that reference a faculty and store which combinations were evaluated.
 - Append-only tracking of who signed, who's pending, and which combinations remain valid.
 
@@ -63,7 +64,7 @@ PostgreSQL, Docker Compose for local dev, and Terraform for the production infra
 ### Application Demo
 
 <p align="center">
-  <img src="assets/demo.png" alt="Complif onboarding portal demo" width="900" />
+  <img src="assets/demo.png" alt="Complif onboarding portal demo" width="900" style="border-radius:20px;"/>
 </p>
 
 ### What's in it
@@ -107,9 +108,9 @@ PostgreSQL, Docker Compose for local dev, and Terraform for the production infra
 
 **Design choices I want to highlight:**
 
-- **I made risk scoring a pure function.** It takes input + policy snapshot and returns a score. Policy weights
-  live in DB tables (`country_policies`, `industry_policies`, `risk_settings`), not in code. This way you can
-  change what "high-risk country" means without redeploying.
+- **I made risk scoring a pure function.** It takes input + policy snapshot and returns a score. Policy
+  weights live in DB tables (`country_policies`, `industry_policies`, `risk_settings`), not in code. This way
+  you can change what "high-risk country" means without redeploying.
 - **I constrained status transitions** to `pending -> in_review -> approved/rejected`, with a mandatory audit
   reason on every change. No jumping from `pending` straight to `approved`.
 - **Documents get checksums and versions.** SHA-256 on upload, auto-incrementing version per
@@ -289,7 +290,7 @@ All endpoints are prefixed with `/api`. Full interactive documentation is availa
 ### Database Schema
 
 <p align="center">
-  <img src="assets/db-schema.png" alt="Database schema" width="900" />
+  <img src="assets/db-schema.png" alt="Database schema" width="900" style="border-radius:20px;"/>
 </p>
 
 Migrations run automatically on backend start (TypeORM). Full history in `backend/src/database/migrations/`.
@@ -297,7 +298,8 @@ Migrations run automatically on backend start (TypeORM). Full history in `backen
 ### Migration Path
 
 - `InitialSchema`: core tables (users, businesses, documents, status history, enums, indexes).
-- `AddComplianceReferenceData`: I moved country risk, industry risk, and thresholds into DB tables instead of code constants.
+- `AddComplianceReferenceData`: I moved country risk, industry risk, and thresholds into DB tables instead of
+  code constants.
 - `AddBusinessSoftDelete`: soft delete so you never lose compliance history.
 - `AddDocumentAuditAndRiskSnapshots`: who uploaded each file, SHA-256 checksums, document versioning, and
   immutable risk assessment records with policy version hashes.
@@ -335,10 +337,10 @@ cd backend && npm run test:cov                 # coverage report
 
 GitHub Actions on every push/PR to `main`, three stages:
 
-| Stage      | What it does                                                          |
-| ---------- | --------------------------------------------------------------------- |
-| **Build**  | Compiles backend, microservice, and frontend in parallel (Node 20)    |
-| **Test**   | Runs unit tests for backend and microservice                          |
+| Stage      | What it does                                                            |
+| ---------- | ----------------------------------------------------------------------- |
+| **Build**  | Compiles backend, microservice, and frontend in parallel (Node 20)      |
+| **Test**   | Runs unit tests for backend and microservice                            |
 | **Deploy** | `terraform validate`, checks .tf files are valid, no credentials needed |
 
 The deploy stage only validates that the Terraform is well-formed. In a real setup I'd add `terraform plan` on
@@ -354,7 +356,7 @@ setup. I validate them in CI (`terraform validate`) but I didn't deploy them sin
 the files to be ready and validated.
 
 <p align="center">
-  <img src="assets/infrastructure.jpg" alt="Infrastructure design, what the Terraform creates" width="900" />
+  <img src="assets/infrastructure.jpg" alt="Infrastructure design, what the Terraform creates" width="900" style="border-radius:20px;"/>
 </p>
 
 The diagram above is what the Terraform actually provisions. It maps 1:1 to local dev:
@@ -442,9 +444,9 @@ Each service also has its own `.env.example`, see `backend/.env.example`, `front
 
 ## Postman Collection
 
-Import `complif.postman_collection.json` into Postman or Thunder Client. Covers auth, all business
-endpoints, document upload, and the format validation microservice. The `{{token}}` variable is set
-automatically when you run the login request.
+Import `complif.postman_collection.json` into Postman or Thunder Client. Covers auth, all business endpoints,
+document upload, and the format validation microservice. The `{{token}}` variable is set automatically when
+you run the login request.
 
 ---
 
