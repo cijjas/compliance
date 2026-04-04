@@ -26,15 +26,13 @@ This repository answers both parts of the brief described in
 - [API Summary](#api-summary)
 - [Database and Risk Scoring](#database-and-risk-scoring)
 - [Testing and CI](#testing-and-ci)
-- [Infrastructure](#infrastructure)
+- [Infrastructure (Terraform)](#infrastructure-terraform)
 
 ## Part 1. Data Model for Electronic Signatures
 
-The first exercise asks for a model that can represent signature schemas per account, standardized faculties,
-signer groups, signature rules, signature requests, valid combinations, and traceability of the signing
-process.
-
-This part is documented as a design artifact in the diagrams below.
+This part is a design exercise, not code. The challenge asks for a data model that handles signature schemas
+per account, standardized faculties, signer groups, composable rules, signature requests with valid
+combinations, and full traceability of who signed what.
 
 ### Raw Domain Model
 
@@ -42,8 +40,7 @@ This part is documented as a design artifact in the diagrams below.
   <img src="assets/er-1-pure.png" alt="Exercise 1 raw data model" width="900" />
 </p>
 
-This first diagram keeps the model close to the problem statement and shows the initial entity map before
-refinement.
+First pass, maps directly from the problem statement before any normalization.
 
 ### Refined ER Diagram
 
@@ -51,18 +48,17 @@ refinement.
   <img src="assets/er-1.jpg" alt="Exercise 1 refined ER diagram" width="900" />
 </p>
 
-The model is designed to support:
+The refined model supports:
 
-- A reusable catalog of faculties tied to account-level signature schemas.
-- Signer groups and rule composition, so one faculty can accept multiple valid signing paths.
-- Signature requests that store the required faculty and the combinations evaluated for that request.
-- Full auditability of request progress, signer activity, and pending signatures.
+- Faculties as a reusable catalog tied to account-level signature schemas.
+- Groups and rules that compose, so one faculty can have multiple valid signing paths (e.g. "1 from A OR 2 from B").
+- Signature requests that reference a faculty and store which combinations were evaluated.
+- Append-only tracking of who signed, who's pending, and which combinations remain valid.
 
 ## Part 2. Onboarding Portal Implementation
 
-The second exercise is the working platform in this repository. It implements the internal company onboarding
-flow with a Next.js frontend, a NestJS backend, a validation microservice, PostgreSQL persistence,
-Docker-based local setup, and Terraform for infrastructure definition.
+This is the working platform. Next.js frontend, NestJS backend, a separate tax ID validation microservice,
+PostgreSQL, Docker Compose for local dev, and Terraform for the production infra definition.
 
 ### Application Demo
 
@@ -70,26 +66,15 @@ Docker-based local setup, and Terraform for infrastructure definition.
   <img src="assets/demo.png" alt="Complif onboarding portal demo" width="900" />
 </p>
 
-### Delivered Scope
+### What's in it
 
 - Dashboard with company listing, filters, search, and status visibility.
-- Company registration with basic data capture and document upload.
-- Company detail with status timeline, document access, and risk assessment visibility.
-- JWT authentication with route-level role enforcement for `admin` and `viewer`.
-- Deterministic risk scoring based on policy data, country, industry, and document completeness.
-- Separate tax identifier validation microservice called by the main backend.
-- Real-time notifications, OpenAPI docs, Postman collection, CI validation, and sample seed data.
-
-### Infrastructure Design
-
-<p align="center">
-  <img src="assets/infrastructure.jpg" alt="Infrastructure design" width="900" />
-</p>
-
-The infrastructure proposal mirrors the local architecture while making the production boundaries explicit.
-Vercel hosts the frontend, the backend and validation service run on ECS Fargate, PostgreSQL moves to RDS,
-documents are stored in versioned S3, and the network is isolated with public and private subnets plus
-security groups. This keeps the deployment simple, auditable, and aligned with the challenge requirements.
+- Company registration form with document upload.
+- Company detail page with status timeline, documents, and risk breakdown.
+- JWT auth with `admin` (full access) and `viewer` (read-only) roles enforced at the route level.
+- Deterministic risk scoring driven by database policy tables, not hardcoded weights.
+- Separate microservice for CUIT/RFC/CNPJ format validation, called by the backend on company creation.
+- Real-time notifications via SSE, OpenAPI docs, Postman collection, CI pipeline, and 25 seeded companies.
 
 ### Tech Stack
 
@@ -120,17 +105,20 @@ security groups. This keeps the deployment simple, auditable, and aligned with t
                     └──────────────────┘
 ```
 
-**Key design decisions:**
+**Design choices I want to highlight:**
 
-- **Risk scoring** is a pure deterministic function: same input + same policy = same score, always. Policy
-  lives in database tables, not code constants.
-- **Status transitions** are constrained (`pending -> in_review -> approved/rejected`) with mandatory reason
-  on every change.
-- **Document uploads** produce SHA-256 checksums and auto-increment versions per `(business, document_type)`.
-- **Every risk assessment** is snapshotted with its full breakdown and a policy version hash for auditability.
-- **SSE (Server-Sent Events)** push real-time notifications to the frontend when status changes.
-- **Rate limiting** is enabled globally (100 requests/minute per client).
-- **Structured logging** via Pino with pretty-print in development.
+- **I made risk scoring a pure function.** It takes input + policy snapshot and returns a score. Policy weights
+  live in DB tables (`country_policies`, `industry_policies`, `risk_settings`), not in code. This way you can
+  change what "high-risk country" means without redeploying.
+- **I constrained status transitions** to `pending -> in_review -> approved/rejected`, with a mandatory audit
+  reason on every change. No jumping from `pending` straight to `approved`.
+- **Documents get checksums and versions.** SHA-256 on upload, auto-incrementing version per
+  `(business, document_type)`. Re-uploading a fiscal certificate creates version 2, not an overwrite.
+- **I snapshot every risk assessment** with its full breakdown and a hash of the policy that produced it. If
+  policy changes next month, you can still explain why a company scored 75 today.
+- **I chose SSE for real-time notifications** because it's simpler than WebSockets for unidirectional
+  server-to-client push.
+- **Rate limiting** globally at 100 req/min, **structured logging** via Pino.
 
 ## Setup and Local Development
 
@@ -181,7 +169,7 @@ docker compose exec backend npm run seed:prod
 This creates:
 
 - 2 users (admin + viewer)
-- 25 sample companies across different countries, industries, and statuses
+- 25 sample companies spread over several countries, industries, and statuses
 - Documents, status history, and risk assessments for each company
 
 #### 5. Open the application
@@ -304,25 +292,20 @@ All endpoints are prefixed with `/api`. Full interactive documentation is availa
   <img src="assets/db-schema.png" alt="Database schema" width="900" />
 </p>
 
-Migrations are managed by TypeORM and run automatically when the backend starts. See
-`backend/src/database/migrations/` for the full migration history.
+Migrations run automatically on backend start (TypeORM). Full history in `backend/src/database/migrations/`.
 
 ### Migration Path
 
-- `1711500000000-InitialSchema`: creates the core onboarding model with users, businesses, documents, status
-  history, enums, and the indexes needed for listing and filtering.
-- `1711600000000-AddComplianceReferenceData`: moves country risk, industry risk, and global thresholds into
-  tables so scoring stays deterministic and configurable without code changes.
-- `1711700000000-AddBusinessSoftDelete`: adds soft delete fields to preserve auditability and avoid losing
-  compliance history.
-- `1711800000000-AddDocumentAuditAndRiskSnapshots`: adds upload provenance, checksums, versioning, and
-  immutable risk snapshots so both documents and scoring are traceable over time.
-- `1711900000000-AddNotifications`: stores status-change notifications so the UI can show real-time updates
-  and a persisted event trail.
+- `InitialSchema`: core tables (users, businesses, documents, status history, enums, indexes).
+- `AddComplianceReferenceData`: I moved country risk, industry risk, and thresholds into DB tables instead of code constants.
+- `AddBusinessSoftDelete`: soft delete so you never lose compliance history.
+- `AddDocumentAuditAndRiskSnapshots`: who uploaded each file, SHA-256 checksums, document versioning, and
+  immutable risk assessment records with policy version hashes.
+- `AddNotifications`: persisted notification table for the SSE stream and notification history.
 
 ### Risk Scoring
 
-The risk engine computes a score from 0 to 100 based on three factors:
+Score from 0 to 100, sum of three factors:
 
 | Factor                 | Source                    | Example                                |
 | ---------------------- | ------------------------- | -------------------------------------- |
@@ -334,56 +317,49 @@ The risk engine computes a score from 0 to 100 based on three factors:
 - Required documents: fiscal certificate, registration proof, insurance policy
 - Every assessment is snapshotted with its full breakdown and policy version hash
 
-The scoring function is pure and deterministic, see `backend/src/risk-scoring/risk-assessment.policy.ts`.
+I kept the scoring function pure, see `backend/src/risk-scoring/risk-assessment.policy.ts`.
 
 ## Testing and CI
 
 ### Testing
 
-Unit tests run locally, not inside Docker. The production images only contain compiled output.
+Tests run locally, not inside Docker (production images only have compiled output).
 
 ```bash
-# Backend (73 tests across 11 suites)
-cd backend
-npm test
-
-# Microservice (4 tests)
-cd microservice-format-validation
-npm test
-
-# Coverage report
-cd backend
-npm run test:cov
+cd backend && npm test                         # 73 tests, 11 suites
+cd microservice-format-validation && npm test  # 4 tests
+cd backend && npm run test:cov                 # coverage report
 ```
 
----
+### CI Pipeline
 
-### CI/CD Pipeline
+GitHub Actions on every push/PR to `main`, three stages:
 
-GitHub Actions runs on every push and PR to `main` with three sequential stages:
+| Stage      | What it does                                                          |
+| ---------- | --------------------------------------------------------------------- |
+| **Build**  | Compiles backend, microservice, and frontend in parallel (Node 20)    |
+| **Test**   | Runs unit tests for backend and microservice                          |
+| **Deploy** | `terraform validate`, checks .tf files are valid, no credentials needed |
 
-| Stage      | What it does                                                                          |
-| ---------- | ------------------------------------------------------------------------------------- |
-| **Build**  | Compiles backend, microservice, and frontend in parallel (Node 20)                    |
-| **Test**   | Runs unit tests for backend and microservice                                          |
-| **Deploy** | Validates Terraform configuration (`terraform validate`, no cloud credentials needed) |
+The deploy stage only validates that the Terraform is well-formed. In a real setup I'd add `terraform plan` on
+PRs and `terraform apply` on merge to main with OIDC credentials, but that needs live AWS accounts and a state
+backend, which felt like overkill for the challenge scope, so I decided to keep it at validation only.
 
 See `.github/workflows/ci.yml`.
 
-## Infrastructure
+## Infrastructure (Terraform)
 
-The `infrastructure/` directory contains validated `.tf` files ready to provision. They are not deployed
-automatically and are only validated in CI, which matches the scope requested in the challenge.
+The `infrastructure/` directory has 9 `.tf` files that define the production equivalent of the Docker Compose
+setup. I validate them in CI (`terraform validate`) but I didn't deploy them since the challenge only asks for
+the files to be ready and validated.
 
-The design follows the same separation used in local development:
+<p align="center">
+  <img src="assets/infrastructure.jpg" alt="Infrastructure design, what the Terraform creates" width="900" />
+</p>
 
-- The frontend is hosted on Vercel.
-- The backend API and the format-validation service run as separate ECS Fargate services.
-- PostgreSQL runs in RDS inside private subnets.
-- Uploaded documents move from a local Docker volume to an encrypted, versioned S3 bucket.
-- Public traffic enters through an ALB, while security groups limit service-to-service access.
+The diagram above is what the Terraform actually provisions. It maps 1:1 to local dev:
 
-| Resource                             | Purpose                         | Docker Compose equivalent       |
+| Resource                             | What it does                    | Replaces (Docker Compose)       |
 | ------------------------------------ | ------------------------------- | ------------------------------- |
 | VPC (2 public + 2 private subnets)   | Network isolation               | Docker network                  |
 | RDS PostgreSQL 16                    | Managed database                | `postgres` service              |
@@ -392,6 +368,9 @@ The design follows the same separation used in local development:
 | ALB + HTTPS                          | Load balancer / TLS termination | Port 8080 binding               |
 | Vercel                               | Frontend hosting                | `frontend` service              |
 | Security Groups                      | Ingress/egress rules            | N/A                             |
+
+For networking, I put the ALB and NAT gateway in public subnets and everything else (ECS tasks, RDS) in
+private subnets. The database is only reachable from the ECS security group, not from the internet.
 
 ---
 
@@ -463,33 +442,20 @@ Each service also has its own `.env.example`, see `backend/.env.example`, `front
 
 ## Postman Collection
 
-Import `complif.postman_collection.json` into Postman or Thunder Client. It includes:
-
-- **Auth**: Register, login (auto-captures token), logout
-- **Businesses**: Create, list (paginated), detail, update status, risk score, soft delete
-- **Documents**: Upload (multipart), list by company
-- **Format Validation**: Health check, validate AR/MX/BR tax IDs
-
-The collection uses a `{{token}}` variable that is automatically set when you run the login request.
+Import `complif.postman_collection.json` into Postman or Thunder Client. Covers auth, all business
+endpoints, document upload, and the format validation microservice. The `{{token}}` variable is set
+automatically when you run the login request.
 
 ---
 
 ## Assumptions and Decisions
 
-All design decisions where the challenge left room for interpretation are documented in
-[`QUESTIONS.md`](QUESTIONS.md) (22 entries), including:
-
-- Risk score weights and policy storage strategy
-- Status transition constraints and mandatory reasons
-- Tax ID validation failure behavior
-- Document audit trail (who uploaded, checksums, versioning)
-- Risk assessment snapshots with policy version hashing
-- Soft delete over hard delete for compliance auditability
-- Microservice network isolation
-
----
+Every place the challenge left room for interpretation I documented in [`QUESTIONS.md`](QUESTIONS.md) (22
+entries). The bigger ones: why I put risk policy in DB tables, why I constrained status transitions, why
+invalid tax IDs reject the whole creation, why I chose soft delete over hard delete, and why the validation
+microservice isn't exposed on the host network.
 
 ## Agent Navigation
 
-[`AGENTS.md`](AGENTS.md) provides a structured guide to the codebase for AI agents and new developers,
-covering module boundaries, compliance patterns, anti-patterns, and the data model.
+[`AGENTS.md`](AGENTS.md) is a codebase guide I wrote for AI agents and new developers, covering module
+boundaries, compliance patterns to follow, and anti-patterns to avoid.
