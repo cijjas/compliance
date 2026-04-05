@@ -92,19 +92,10 @@ PostgreSQL, Docker Compose for local dev, and Terraform for the production infra
 
 ### Application Architecture
 
-```
-┌─────────────┐     ┌──────────────────┐     ┌──────────────────────────┐
-│   Frontend   │────▶│   Backend API    │────▶│  Format Validation       │
-│  Next.js 16  │     │   NestJS 11      │     │  Microservice (NestJS)   │
-│  :3000       │     │   :8080          │     │  :3001 (internal)        │
-└─────────────┘     └────────┬─────────┘     └──────────────────────────┘
-                             │
-                             ▼
-                    ┌──────────────────┐
-                    │   PostgreSQL 16  │
-                    │   :5432          │
-                    └──────────────────┘
-```
+<p align="center">
+  <img src="assets/p2-architecture.png" alt="Complif onboarding portal architecture" width="900" style="border-radius:20px;"/>
+</p>
+
 
 **Design choices I want to highlight:**
 
