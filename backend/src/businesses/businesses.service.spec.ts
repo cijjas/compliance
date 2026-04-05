@@ -49,7 +49,9 @@ describe('BusinessesService', () => {
   let riskAssessmentService: jest.Mocked<
     Pick<
       RiskAssessmentService,
-      'refreshBusinessRiskScore' | 'calculateAssessment'
+      | 'refreshBusinessRiskScore'
+      | 'calculateAssessment'
+      | 'calculateBusinessAssessment'
     >
   >;
   let referenceDataService: jest.Mocked<
@@ -92,6 +94,7 @@ describe('BusinessesService', () => {
     riskAssessmentService = {
       refreshBusinessRiskScore: jest.fn(),
       calculateAssessment: jest.fn(),
+      calculateBusinessAssessment: jest.fn(),
     };
     referenceDataService = {
       assertActiveCountry: jest.fn().mockResolvedValue({

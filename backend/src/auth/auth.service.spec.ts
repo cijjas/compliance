@@ -19,6 +19,8 @@ describe('AuthService', () => {
   let jwtService: jest.Mocked<Pick<JwtService, 'sign'>>;
 
   beforeEach(() => {
+    jest.clearAllMocks();
+
     usersRepo = {
       findOne: jest.fn(),
       create: jest.fn(),
@@ -104,6 +106,7 @@ describe('AuthService', () => {
         firstName: 'Test',
         lastName: 'User',
         role: UserRole.VIEWER,
+        isActive: true,
       } as User;
 
       const qb = {
@@ -141,6 +144,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: dto.email,
         password: 'hashed-password',
+        isActive: true,
       } as User;
 
       const qb = {
@@ -171,6 +175,29 @@ describe('AuthService', () => {
       await expect(service.login(dto)).rejects.toBeInstanceOf(
         UnauthorizedException,
       );
+    });
+
+    it('rejects login for inactive users', async () => {
+      const user = {
+        id: 'user-1',
+        email: dto.email,
+        password: 'hashed-password',
+        isActive: false,
+      } as User;
+
+      const qb = {
+        addSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(user),
+      } as unknown as SelectQueryBuilder<User>;
+      usersRepo.createQueryBuilder.mockReturnValue(
+        qb as unknown as SelectQueryBuilder<User>,
+      );
+
+      await expect(service.login(dto)).rejects.toBeInstanceOf(
+        UnauthorizedException,
+      );
+      expect(mockedBcrypt.compare).not.toHaveBeenCalled();
     });
   });
 

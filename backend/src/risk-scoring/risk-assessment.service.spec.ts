@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   Business,
   CountryPolicy,
@@ -12,6 +12,15 @@ import { RiskAssessmentService } from './risk-assessment.service';
 
 describe('RiskAssessmentService', () => {
   let service: RiskAssessmentService;
+  let dataSource: {
+    transaction: jest.MockedFunction<
+      (
+        handler: (manager: {
+          getRepository: (entity: unknown) => unknown;
+        }) => Promise<unknown>,
+      ) => Promise<unknown>
+    >;
+  };
   let countryPolicyRepo: jest.Mocked<Pick<Repository<CountryPolicy>, 'find'>>;
   let industryPolicyRepo: jest.Mocked<Pick<Repository<IndustryPolicy>, 'find'>>;
   let riskSettingRepo: jest.Mocked<Pick<Repository<RiskSetting>, 'find'>>;
@@ -47,6 +56,9 @@ describe('RiskAssessmentService', () => {
     riskAssessmentRecordRepo = {
       save: jest.fn(),
     };
+    dataSource = {
+      transaction: jest.fn(),
+    };
 
     service = new RiskAssessmentService(
       {} as Repository<Business>,
@@ -54,6 +66,7 @@ describe('RiskAssessmentService', () => {
       industryPolicyRepo as unknown as Repository<IndustryPolicy>,
       riskSettingRepo as unknown as Repository<RiskSetting>,
       riskAssessmentRecordRepo as unknown as Repository<RiskAssessmentRecord>,
+      dataSource as unknown as DataSource,
     );
   });
 
@@ -153,6 +166,43 @@ describe('RiskAssessmentService', () => {
       }),
       save: jest.fn(),
     };
+    const transactionCountryPolicyRepo = countryPolicyRepo;
+    const transactionIndustryPolicyRepo = industryPolicyRepo;
+    const transactionRiskSettingRepo = riskSettingRepo;
+    const transactionRiskAssessmentRecordRepo = riskAssessmentRecordRepo;
+    const transactionDataSource = {
+      transaction: jest.fn(
+        async (
+          handler: (manager: {
+            getRepository: (entity: unknown) => unknown;
+          }) => Promise<unknown>,
+        ) => {
+          const manager = {
+            getRepository: (entity: unknown) => {
+              if (entity === Business) {
+                return businessRepo;
+              }
+              if (entity === CountryPolicy) {
+                return transactionCountryPolicyRepo;
+              }
+              if (entity === IndustryPolicy) {
+                return transactionIndustryPolicyRepo;
+              }
+              if (entity === RiskSetting) {
+                return transactionRiskSettingRepo;
+              }
+              if (entity === RiskAssessmentRecord) {
+                return transactionRiskAssessmentRecordRepo;
+              }
+
+              throw new Error('Unexpected repository');
+            },
+          };
+
+          return handler(manager);
+        },
+      ),
+    };
 
     const serviceWithBusinessRepo = new RiskAssessmentService(
       businessRepo as unknown as Repository<Business>,
@@ -160,12 +210,14 @@ describe('RiskAssessmentService', () => {
       industryPolicyRepo as unknown as Repository<IndustryPolicy>,
       riskSettingRepo as unknown as Repository<RiskSetting>,
       riskAssessmentRecordRepo as unknown as Repository<RiskAssessmentRecord>,
+      transactionDataSource as unknown as DataSource,
     );
 
     const assessment =
       await serviceWithBusinessRepo.refreshBusinessRiskScore('business-1');
 
     expect(assessment.score).toBe(75);
+    expect(transactionDataSource.transaction).toHaveBeenCalledTimes(1);
     expect(businessRepo.save).toHaveBeenCalledWith(
       expect.objectContaining({ riskScore: 75 }),
     );
@@ -184,6 +236,46 @@ describe('RiskAssessmentService', () => {
         policyVersion: expect.stringMatching(/.*/),
       }),
     );
+  });
+
+  it('calculates a business assessment without persisting side effects', async () => {
+    const businessRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 'business-1',
+        country: 'AR',
+        industry: 'technology',
+        documents: [{ type: DocumentType.FISCAL_CERTIFICATE }],
+      }),
+      save: jest.fn(),
+    };
+    const serviceWithBusinessRepo = new RiskAssessmentService(
+      businessRepo as unknown as Repository<Business>,
+      countryPolicyRepo as unknown as Repository<CountryPolicy>,
+      industryPolicyRepo as unknown as Repository<IndustryPolicy>,
+      riskSettingRepo as unknown as Repository<RiskSetting>,
+      riskAssessmentRecordRepo as unknown as Repository<RiskAssessmentRecord>,
+      dataSource as unknown as DataSource,
+    );
+
+    const assessment =
+      await serviceWithBusinessRepo.calculateBusinessAssessment('business-1');
+
+    expect(assessment).toEqual({
+      score: 20,
+      requiresManualReview: false,
+      breakdown: {
+        countryRisk: 0,
+        industryRisk: 0,
+        documentationRisk: 20,
+        missingDocumentTypes: [
+          DocumentType.REGISTRATION_PROOF,
+          DocumentType.INSURANCE_POLICY,
+        ],
+      },
+    });
+    expect(businessRepo.save).not.toHaveBeenCalled();
+    expect(riskAssessmentRecordRepo.save).not.toHaveBeenCalled();
+    expect(dataSource.transaction).not.toHaveBeenCalled();
   });
 
   it('generates a deterministic policy version hash', async () => {

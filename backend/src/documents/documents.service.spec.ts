@@ -1,9 +1,11 @@
 jest.mock('fs/promises', () => ({
   readFile: jest.fn().mockResolvedValue(Buffer.from('fake-pdf-content')),
+  unlink: jest.fn().mockResolvedValue(undefined),
 }));
 
+import { unlink } from 'fs/promises';
 import { NotFoundException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import { RiskAssessmentService } from '../risk-scoring';
 import { Business, Document } from '../common/entities';
@@ -13,11 +15,21 @@ import { DocumentsService } from './documents.service';
 const FAKE_CHECKSUM = createHash('sha256')
   .update(Buffer.from('fake-pdf-content'))
   .digest('hex');
+const mockedUnlink = jest.mocked(unlink);
+
+type TransactionManagerMock = {
+  getRepository: (entity: unknown) => unknown;
+};
+
+type TransactionHandler = (manager: TransactionManagerMock) => Promise<unknown>;
 
 describe('DocumentsService', () => {
   let service: DocumentsService;
   let documentRepo: jest.Mocked<
-    Pick<Repository<Document>, 'create' | 'save' | 'findOne' | 'find'>
+    Pick<
+      Repository<Document>,
+      'create' | 'save' | 'findOne' | 'find' | 'delete'
+    >
   >;
   let businessRepo: jest.Mocked<Pick<Repository<Business>, 'findOne'>>;
   let riskAssessmentService: jest.Mocked<
@@ -26,14 +38,20 @@ describe('DocumentsService', () => {
   let txDocRepo: jest.Mocked<
     Pick<Repository<Document>, 'create' | 'save' | 'findOne'>
   >;
-  let dataSource: { transaction: jest.Mock };
+  let dataSource: {
+    transaction: jest.MockedFunction<
+      (handler: TransactionHandler) => Promise<unknown>
+    >;
+  };
 
   beforeEach(() => {
+    mockedUnlink.mockClear();
     documentRepo = {
       create: jest.fn(),
       save: jest.fn(),
       findOne: jest.fn(),
       find: jest.fn(),
+      delete: jest.fn().mockResolvedValue({ affected: 1, raw: {} }),
     };
     txDocRepo = {
       create: jest.fn(),
@@ -47,10 +65,11 @@ describe('DocumentsService', () => {
       refreshBusinessRiskScore: jest.fn(),
     };
     dataSource = {
-      transaction: jest.fn(async (cb: (manager: unknown) => Promise<unknown>) => {
-        const manager = {
+      transaction: jest.fn(async (cb: TransactionHandler) => {
+        const manager: TransactionManagerMock = {
           getRepository: () => txDocRepo,
         };
+
         return cb(manager);
       }),
     };
@@ -58,7 +77,7 @@ describe('DocumentsService', () => {
     service = new DocumentsService(
       documentRepo as unknown as Repository<Document>,
       businessRepo as unknown as Repository<Business>,
-      dataSource as any,
+      dataSource as unknown as DataSource,
       riskAssessmentService as unknown as RiskAssessmentService,
     );
   });
@@ -117,6 +136,7 @@ describe('DocumentsService', () => {
     expect(riskAssessmentService.refreshBusinessRiskScore).toHaveBeenCalledWith(
       'business-1',
     );
+    expect(mockedUnlink).not.toHaveBeenCalled();
   });
 
   it('increments version when uploading the same document type for a business', async () => {
@@ -193,6 +213,44 @@ describe('DocumentsService', () => {
 
     expect(documentRepo.save).not.toHaveBeenCalled();
     expect(riskAssessmentService.refreshBusinessRiskScore).not.toHaveBeenCalled();
+    expect(documentRepo.delete).not.toHaveBeenCalled();
+    expect(mockedUnlink).toHaveBeenCalledWith('uploads/document.pdf');
+  });
+
+  it('removes the document row and file when risk refresh fails after save', async () => {
+    const file = {
+      originalname: 'document.pdf',
+      path: 'uploads/document.pdf',
+      mimetype: 'application/pdf',
+      size: 512,
+    } as Express.Multer.File;
+    const savedDocument = {
+      id: 'document-1',
+      businessId: 'business-1',
+    } as Document;
+
+    businessRepo.findOne.mockResolvedValue({
+      id: 'business-1',
+      name: 'Acme Corp',
+    } as Business);
+    txDocRepo.findOne.mockResolvedValue(null);
+    txDocRepo.create.mockReturnValue(savedDocument);
+    txDocRepo.save.mockResolvedValue(savedDocument);
+    riskAssessmentService.refreshBusinessRiskScore.mockRejectedValue(
+      new Error('Risk refresh failed'),
+    );
+
+    await expect(
+      service.upload(
+        'business-1',
+        file,
+        DocumentType.FISCAL_CERTIFICATE,
+        'user-1',
+      ),
+    ).rejects.toThrow('Risk refresh failed');
+
+    expect(documentRepo.delete).toHaveBeenCalledWith('document-1');
+    expect(mockedUnlink).toHaveBeenCalledWith(file.path);
   });
 
   it('findOneForBusiness returns the document when it exists', async () => {

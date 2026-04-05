@@ -339,7 +339,7 @@ export class BusinessesService {
 
   async getRiskScore(id: string) {
     const assessment =
-      await this.riskAssessmentService.refreshBusinessRiskScore(id);
+      await this.riskAssessmentService.calculateBusinessAssessment(id);
 
     return {
       businessId: id,

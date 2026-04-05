@@ -18,7 +18,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ParseFilePipeBuilder } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiConsumes } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
-import { extname, resolve, join } from 'path';
+import { extname, resolve } from 'path';
 import { createReadStream, existsSync } from 'fs';
 import { v4 as uuid } from 'uuid';
 import type { Response } from 'express';

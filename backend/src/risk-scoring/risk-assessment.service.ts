@@ -1,9 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { createHash } from 'crypto';
 import {
   Business,
@@ -35,12 +32,71 @@ export class RiskAssessmentService {
     private readonly riskSettingRepo: Repository<RiskSetting>,
     @InjectRepository(RiskAssessmentRecord)
     private readonly riskAssessmentRecordRepo: Repository<RiskAssessmentRecord>,
+    private readonly dataSource: DataSource,
   ) {}
 
-  async refreshBusinessRiskScore(
+  async refreshBusinessRiskScore(businessId: string): Promise<RiskAssessment> {
+    return this.dataSource.transaction(async (manager) => {
+      const { business, assessment, snapshot } =
+        await this.buildBusinessAssessment(
+          businessId,
+          manager.getRepository(Business),
+          manager.getRepository(CountryPolicy),
+          manager.getRepository(IndustryPolicy),
+          manager.getRepository(RiskSetting),
+        );
+
+      business.riskScore = assessment.score;
+      await manager.getRepository(Business).save(business);
+
+      await manager.getRepository(RiskAssessmentRecord).save({
+        businessId,
+        score: assessment.score,
+        requiresManualReview: assessment.requiresManualReview,
+        countryRisk: assessment.breakdown.countryRisk,
+        industryRisk: assessment.breakdown.industryRisk,
+        documentationRisk: assessment.breakdown.documentationRisk,
+        missingDocumentTypes: assessment.breakdown.missingDocumentTypes,
+        policyVersion: snapshot.version,
+      });
+
+      return assessment;
+    });
+  }
+
+  async calculateBusinessAssessment(businessId: string): Promise<RiskAssessment> {
+    const { assessment } = await this.buildBusinessAssessment(
+      businessId,
+      this.businessRepo,
+      this.countryPolicyRepo,
+      this.industryPolicyRepo,
+      this.riskSettingRepo,
+    );
+
+    return assessment;
+  }
+
+  async calculateAssessment(input: RiskInput): Promise<RiskAssessment> {
+    const snapshot = await this.loadPolicySnapshot(
+      this.countryPolicyRepo,
+      this.industryPolicyRepo,
+      this.riskSettingRepo,
+    );
+    return calculateRiskAssessment(input, snapshot);
+  }
+
+  private async buildBusinessAssessment(
     businessId: string,
-  ): Promise<RiskAssessment> {
-    const business = await this.businessRepo.findOne({
+    businessRepo: Repository<Business>,
+    countryPolicyRepo: Repository<CountryPolicy>,
+    industryPolicyRepo: Repository<IndustryPolicy>,
+    riskSettingRepo: Repository<RiskSetting>,
+  ): Promise<{
+    business: Business;
+    assessment: RiskAssessment;
+    snapshot: RiskPolicySnapshot;
+  }> {
+    const business = await businessRepo.findOne({
       where: { id: businessId },
       relations: ['documents'],
     });
@@ -49,7 +105,11 @@ export class RiskAssessmentService {
       throw new NotFoundException('Business not found');
     }
 
-    const snapshot = await this.loadPolicySnapshot();
+    const snapshot = await this.loadPolicySnapshot(
+      countryPolicyRepo,
+      industryPolicyRepo,
+      riskSettingRepo,
+    );
     const assessment = calculateRiskAssessment(
       {
         country: business.country,
@@ -59,33 +119,18 @@ export class RiskAssessmentService {
       snapshot,
     );
 
-    business.riskScore = assessment.score;
-    await this.businessRepo.save(business);
-
-    await this.riskAssessmentRecordRepo.save({
-      businessId,
-      score: assessment.score,
-      requiresManualReview: assessment.requiresManualReview,
-      countryRisk: assessment.breakdown.countryRisk,
-      industryRisk: assessment.breakdown.industryRisk,
-      documentationRisk: assessment.breakdown.documentationRisk,
-      missingDocumentTypes: assessment.breakdown.missingDocumentTypes,
-      policyVersion: snapshot.version,
-    });
-
-    return assessment;
+    return { business, assessment, snapshot };
   }
 
-  async calculateAssessment(input: RiskInput): Promise<RiskAssessment> {
-    const snapshot = await this.loadPolicySnapshot();
-    return calculateRiskAssessment(input, snapshot);
-  }
-
-  private async loadPolicySnapshot(): Promise<RiskPolicySnapshot> {
+  private async loadPolicySnapshot(
+    countryPolicyRepo: Repository<CountryPolicy>,
+    industryPolicyRepo: Repository<IndustryPolicy>,
+    riskSettingRepo: Repository<RiskSetting>,
+  ): Promise<RiskPolicySnapshot> {
     const [countries, industries, settings] = await Promise.all([
-      this.countryPolicyRepo.find({ where: { isActive: true } }),
-      this.industryPolicyRepo.find({ where: { isActive: true } }),
-      this.riskSettingRepo.find(),
+      countryPolicyRepo.find({ where: { isActive: true } }),
+      industryPolicyRepo.find({ where: { isActive: true } }),
+      riskSettingRepo.find(),
     ]);
 
     const countryRiskPointsByCode = new Map(
@@ -124,5 +169,4 @@ export class RiskAssessmentService {
       version,
     };
   }
-
 }
